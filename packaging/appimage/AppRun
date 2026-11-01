@@ -1,0 +1,4 @@
+#!/bin/sh
+# Entry point of the mrn AppImage: run the bundled binary with all arguments.
+HERE="$(dirname "$(readlink -f "$0")")"
+exec "$HERE/usr/bin/mrn" "$@"

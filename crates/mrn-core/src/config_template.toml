@@ -1,0 +1,52 @@
+# mrn configuration
+# Location: ~/.config/mrn/config.toml (override with $MRN_CONFIG)
+
+[api]
+# Free key from https://www.themoviedb.org/settings/api (v3 key or v4 read token).
+# Needed for movies and TV, and for anime episode titles. Env: TMDB_API_KEY
+tmdb = ""
+# Free key from https://comicvine.gamespot.com/api/ (western comics). Env: COMICVINE_API_KEY
+comicvine = ""
+
+[general]
+language = "en-US"
+# Naming preset: jellyfin, plex, kodi, anime, kavita, komga
+preset = "jellyfin"
+# move, copy, hardlink, symlink
+action = "move"
+# What to do when the target exists: skip, override, index
+conflict = "skip"
+# Matches below this confidence (0-1) are confirmed interactively
+threshold = 0.85
+# Anime/manga title language: romaji, english, native
+anime_title = "romaji"
+# Strip characters Windows/SMB shares can't store
+windows_safe = true
+cache_ttl_hours = 72
+concurrency = 4
+
+# Library roots per media kind. Used when --output is not given.
+# Without a root, files are renamed in place (file name only).
+[output]
+# movie = "~/Media/Movies"
+# tv    = "~/Media/TV"
+# anime = "~/Media/Anime"
+# comic = "~/Media/Comics"
+# manga = "~/Media/Manga"
+
+# Custom templates per kind override the preset. Fields:
+#   {n} name  {y} year  {s} season  {e} episode  {s00e00}  {sxe}  {abs} absolute
+#   {t} episode/issue title  {d} air date  {vol} {ch} {issue}  {vf} resolution
+#   {vs} source  {vc} video codec  {ac} audio codec  {group}  {crc}  {id} {tmdbid}
+#   {orig} original file name  {publisher}
+# Padding: {s:02}  Case: {n:upper} {n:lower}  First letter: {n:first}
+# [ ... ] is optional: dropped if any field inside is missing.
+# "/" separates folders. The extension is added automatically.
+[format]
+# tv = "{n} ({y})/Season {s:02}/{n} - {s00e00}[ - {t}]"
+
+# Extras are off by default.
+[extras]
+nfo = false        # Kodi/Jellyfin .nfo files
+artwork = false    # posters, fanart, covers
+comicinfo = false  # ComicInfo.xml inside .cbz

@@ -1,0 +1,30 @@
+[package]
+name = "mrn-core"
+description = "Core library for mrn: parse, match, format and rename media files"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+async-trait = "0.1.92"
+directories = "6.0.0"
+futures = "0.3.34"
+regex = "1.13.1"
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "json", "gzip", "query"] }
+rusqlite = { version = "0.41.1", features = ["bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+strsim = "0.11.1"
+thiserror = "2.0.21"
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "time", "fs"] }
+toml = "1.1.8"
+tracing = "0.1.44"
+unicode-normalization = "0.1.26"
+walkdir = "2.5.0"
+zip = { version = "9.2.0", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"
+wiremock = "0.6.5"

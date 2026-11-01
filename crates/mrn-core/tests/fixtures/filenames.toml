@@ -1,0 +1,504 @@
+# Parser corpus: each case is a path (folders give context) and the fields we
+# expect. Only listed fields are checked. `kind` is the detected media kind.
+# Numbers for books are checked after kind-specific resolution
+# (a bare number becomes `chapter` for manga, `issue` for comics).
+
+# ---------------------------------------------------------------- TV
+[[case]]
+path = "The.Expanse.S02E05.1080p.WEB.H264-GROUP.mkv"
+kind = "tv"
+title = "The Expanse"
+season = 2
+episodes = [5]
+resolution = "1080p"
+group = "GROUP"
+
+[[case]]
+path = "Breaking Bad - S05E14 - Ozymandias.mkv"
+kind = "tv"
+title = "Breaking Bad"
+season = 5
+episodes = [14]
+
+[[case]]
+path = "game.of.thrones.s08e03.720p.hdtv.x264.mkv"
+kind = "tv"
+title = "game of thrones"
+season = 8
+episodes = [3]
+resolution = "720p"
+source = "hdtv"
+video_codec = "x264"
+
+[[case]]
+path = "Friends.1x05.The.One.With.The.East.German.Laundry.Detergent.avi"
+kind = "tv"
+title = "Friends"
+season = 1
+episodes = [5]
+
+[[case]]
+path = "Doctor.Who.2005.S01E01.Rose.mkv"
+kind = "tv"
+title = "Doctor Who"
+year = 2005
+season = 1
+episodes = [1]
+
+[[case]]
+path = "Show.Name.S01E01E02.mkv"
+title = "Show Name"
+episodes = [1, 2]
+
+[[case]]
+path = "Show.Name.S01E01-E03.mkv"
+title = "Show Name"
+episodes = [1, 2, 3]
+
+[[case]]
+path = "Show Name S01E01-03.mkv"
+title = "Show Name"
+episodes = [1, 2, 3]
+
+[[case]]
+path = "The.Daily.Show.2024.01.02.Guest.Name.720p.WEB.mkv"
+kind = "tv"
+title = "The Daily Show"
+date = "2024-01-02"
+year = "none"
+
+[[case]]
+path = "Mr.Robot.S04E13.Hello.Elliot.1080p.AMZN.WEB-DL.DDP5.1.H.264-NTb.mkv"
+kind = "tv"
+title = "Mr Robot"
+season = 4
+episodes = [13]
+source = "WEB-DL"
+audio_codec = "DDP5.1"
+group = "NTb"
+
+[[case]]
+path = "Parks and Recreation S03E01 (1080p).mkv"
+title = "Parks and Recreation"
+season = 3
+episodes = [1]
+resolution = "1080p"
+
+[[case]]
+path = "Planet Earth II S01E01 Islands.mkv"
+title = "Planet Earth II"
+
+[[case]]
+path = "The Office (US) - S02E01 - The Dundies.mkv"
+kind = "tv"
+title = "The Office (US)"
+season = 2
+episodes = [1]
+
+[[case]]
+path = "Show Name/Season 02/03 - Title.mkv"
+kind = "tv"
+title = "Show Name"
+season = 2
+episodes = [3]
+title_from_folder = true
+
+[[case]]
+path = "The Expanse (2015)/Season 2/The.Expanse.S02E05.mkv"
+title = "The Expanse"
+year = 2015
+season = 2
+episodes = [5]
+
+[[case]]
+path = "Show/Season 1/E05.mkv"
+kind = "tv"
+title = "Show"
+season = 1
+episodes = [5]
+
+[[case]]
+path = "Show/Season 3/07.mkv"
+kind = "tv"
+title = "Show"
+season = 3
+episodes = [7]
+
+[[case]]
+path = "Stranger Things S04E09 Chapter Nine The Piggyback.mkv"
+title = "Stranger Things"
+season = 4
+episodes = [9]
+
+[[case]]
+path = "Severance.S02E01.Hello.Ms.Cobel.2160p.ATVP.WEB-DL.DDP5.1.Atmos.DV.HDR.H.265-FLUX.mkv"
+title = "Severance"
+resolution = "2160p"
+group = "FLUX"
+
+[[case]]
+path = "Shogun.2024.S01E01.mkv"
+kind = "tv"
+title = "Shogun"
+year = 2024
+season = 1
+episodes = [1]
+
+[[case]]
+path = "show_name_s01e01.mkv"
+title = "show name"
+season = 1
+episodes = [1]
+
+[[case]]
+path = "Show Name - 1x01 - Pilot.mkv"
+title = "Show Name"
+season = 1
+episodes = [1]
+
+[[case]]
+path = "Show Name Season 3 Episode 4.mkv"
+kind = "tv"
+title = "Show Name"
+season = 3
+episodes = [4]
+
+[[case]]
+path = "Its.Always.Sunny.in.Philadelphia.S16E01.720p.mkv"
+title = "Its Always Sunny in Philadelphia"
+
+[[case]]
+path = "Attack on Titan S04E28.mkv"
+kind = "tv"
+title = "Attack on Titan"
+
+[[case]]
+path = "The.Witcher.S03E01.Shaerrawedd.1080p.NF.WEB-DL.DDP5.1.Atmos.H.264-FLUX.mkv"
+title = "The Witcher"
+season = 3
+episodes = [1]
+
+# ---------------------------------------------------------------- Anime
+[[case]]
+path = "[SubsPlease] Sousou no Frieren - 12 (1080p) [ABCD1234].mkv"
+kind = "anime"
+title = "Sousou no Frieren"
+absolute = [12]
+group = "SubsPlease"
+crc32 = "ABCD1234"
+resolution = "1080p"
+
+[[case]]
+path = "[Erai-raws] Shingeki no Kyojin - The Final Season - 01 [1080p][Multiple Subtitle].mkv"
+kind = "anime"
+title = "Shingeki no Kyojin - The Final Season"
+absolute = [1]
+group = "Erai-raws"
+
+[[case]]
+path = "[HorribleSubs] One Piece - 1000 [720p].mkv"
+kind = "anime"
+title = "One Piece"
+absolute = [1000]
+
+[[case]]
+path = "[Judas] Jujutsu Kaisen S2 - 05 [1080p][HEVC x265 10bit][Multi-Subs].mkv"
+kind = "anime"
+title = "Jujutsu Kaisen"
+season = 2
+episodes = [5]
+group = "Judas"
+
+[[case]]
+path = "[Group] Show Name 03 [1080p].mkv"
+kind = "anime"
+title = "Show Name"
+absolute = [3]
+
+[[case]]
+path = "[Group] Show Name - 03v2 [720p].mkv"
+kind = "anime"
+title = "Show Name"
+absolute = [3]
+version = 2
+
+[[case]]
+path = "Frieren - 05.mkv"
+kind = "anime"
+title = "Frieren"
+absolute = [5]
+
+[[case]]
+path = "[Group] Show [01][1080p].mkv"
+kind = "anime"
+title = "Show"
+absolute = [1]
+
+[[case]]
+path = "[ASW] Spy x Family - 37 [1080p HEVC][5E8A5F8C].mkv"
+kind = "anime"
+title = "Spy x Family"
+absolute = [37]
+crc32 = "5E8A5F8C"
+
+[[case]]
+path = "[SubsPlease] Mob Psycho 100 III - 01 (1080p) [E4A1C2B3].mkv"
+kind = "anime"
+title = "Mob Psycho 100 III"
+absolute = [1]
+
+[[case]]
+path = "Bleach - 366 [BD 1080p].mkv"
+kind = "anime"
+title = "Bleach"
+absolute = [366]
+resolution = "1080p"
+
+[[case]]
+path = "Naruto Shippuden Episode 500.mkv"
+kind = "anime"
+title = "Naruto Shippuden"
+absolute = [500]
+
+[[case]]
+path = "[SubsPlease] Kimetsu no Yaiba - Hashira Geiko-hen - 08 (1080p) [D3E6C2E1].mkv"
+kind = "anime"
+title = "Kimetsu no Yaiba - Hashira Geiko-hen"
+absolute = [8]
+
+[[case]]
+path = "[Golumpa] Fairy Tail - 277 [FuniDub 1080p x264 AAC] [7FFB4C5A].mkv"
+kind = "anime"
+title = "Fairy Tail"
+absolute = [277]
+
+[[case]]
+path = "[Group] Title (2023) - 05 [1080p].mkv"
+kind = "anime"
+title = "Title"
+year = 2023
+absolute = [5]
+
+# ---------------------------------------------------------------- Movies
+[[case]]
+path = "Dune.2021.2160p.mkv"
+kind = "movie"
+title = "Dune"
+year = 2021
+resolution = "2160p"
+
+[[case]]
+path = "Dune (2021).mkv"
+kind = "movie"
+title = "Dune"
+year = 2021
+
+[[case]]
+path = "Blade.Runner.2049.2017.1080p.BluRay.x264.mkv"
+kind = "movie"
+title = "Blade Runner 2049"
+year = 2017
+source = "BluRay"
+
+[[case]]
+path = "1917.2019.1080p.mkv"
+kind = "movie"
+title = "1917"
+year = 2019
+
+[[case]]
+path = "2012.mkv"
+kind = "movie"
+title = "2012"
+year = "none"
+
+[[case]]
+path = "The.Matrix.1999.REMASTERED.1080p.BluRay.x265.10bit.mkv"
+kind = "movie"
+title = "The Matrix"
+year = 1999
+
+[[case]]
+path = "Spider-Man.No.Way.Home.2021.1080p.WEB-DL.mkv"
+kind = "movie"
+title = "Spider-Man No Way Home"
+year = 2021
+group = "none"
+
+[[case]]
+path = "Spider-Man.mkv"
+kind = "movie"
+title = "Spider-Man"
+group = "none"
+
+[[case]]
+path = "Amélie.2001.1080p.mkv"
+title = "Amélie"
+year = 2001
+
+[[case]]
+path = "Movie.Name.(2010).[1080p].mkv"
+kind = "movie"
+title = "Movie Name"
+year = 2010
+
+[[case]]
+path = "The Lord of the Rings - The Fellowship of the Ring (2001) Extended.mkv"
+kind = "movie"
+title = "The Lord of the Rings - The Fellowship of the Ring"
+year = 2001
+
+[[case]]
+path = "Charlotte's Web (1973).mkv"
+kind = "movie"
+title = "Charlotte's Web"
+year = 1973
+
+[[case]]
+path = "Charlotte's Web.mkv"
+kind = "movie"
+title = "Charlotte's Web"
+
+[[case]]
+path = "Star.Wars.Episode.IV.A.New.Hope.1977.mkv"
+kind = "movie"
+title = "Star Wars Episode IV A New Hope"
+year = 1977
+
+[[case]]
+path = "Inception_2010_720p.mkv"
+kind = "movie"
+title = "Inception"
+year = 2010
+
+[[case]]
+path = "Oppenheimer (2023) [1080p] [WEBRip] [x265] [10bit] [5.1] [YTS.MX].mp4"
+kind = "movie"
+title = "Oppenheimer"
+year = 2023
+group = "YTS.MX"
+
+[[case]]
+path = "Movies/Dune (2021)/movie.mkv"
+kind = "movie"
+title = "Dune"
+year = 2021
+title_from_folder = true
+
+# ---------------------------------------------------------------- Manga
+[[case]]
+path = "One Piece v01.cbz"
+kind = "manga"
+title = "One Piece"
+volume = 1
+
+[[case]]
+path = "One Piece - Chapter 1000.cbz"
+kind = "manga"
+title = "One Piece"
+chapter = 1000
+
+[[case]]
+path = "One Piece 1000.cbz"
+kind = "manga"
+title = "One Piece"
+chapter = 1000
+
+[[case]]
+path = "Chainsaw Man v11 c097.cbz"
+kind = "manga"
+title = "Chainsaw Man"
+volume = 11
+chapter = 97
+
+[[case]]
+path = "Berserk Vol. 41.cbz"
+kind = "manga"
+title = "Berserk"
+volume = 41
+
+[[case]]
+path = "[Group] Oshi no Ko - c130.5.cbz"
+kind = "manga"
+title = "Oshi no Ko"
+chapter = 130.5
+group = "Group"
+
+[[case]]
+path = "Vagabond v01 (2002) (Digital).cbz"
+kind = "manga"
+title = "Vagabond"
+volume = 1
+year = 2002
+
+[[case]]
+path = "Dorohedoro_v01.cbz"
+kind = "manga"
+title = "Dorohedoro"
+volume = 1
+
+[[case]]
+path = "Akira/001.cbz"
+kind = "manga"
+title = "Akira"
+chapter = 1
+title_from_folder = true
+
+[[case]]
+path = "Vinland Saga Ch. 200.cbz"
+kind = "manga"
+title = "Vinland Saga"
+chapter = 200
+
+# ---------------------------------------------------------------- Comics
+[[case]]
+path = "Saga #001 (2012) (Digital) (Zone-Empire).cbz"
+kind = "comic"
+title = "Saga"
+issue = 1
+year = 2012
+
+[[case]]
+path = "Batman 001 (2016).cbr"
+kind = "comic"
+title = "Batman"
+issue = 1
+year = 2016
+
+[[case]]
+path = "Batman Annual 02 (2018).cbz"
+kind = "comic"
+title = "Batman Annual"
+issue = 2
+annual = true
+
+[[case]]
+path = "The Walking Dead 193 (2019) (digital).cbz"
+kind = "comic"
+title = "The Walking Dead"
+issue = 193
+
+[[case]]
+path = "Watchmen (1987).cbz"
+kind = "comic"
+title = "Watchmen"
+year = 1987
+
+[[case]]
+path = "100 Bullets 001 (1999).cbz"
+kind = "comic"
+title = "100 Bullets"
+issue = 1
+
+[[case]]
+path = "Saga (2012)/Saga 054.cbz"
+kind = "comic"
+title = "Saga"
+issue = 54
+year = 2012
+
+[[case]]
+path = "Spawn #300.cbr"
+kind = "comic"
+title = "Spawn"
+issue = 300
