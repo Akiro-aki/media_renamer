@@ -11,18 +11,37 @@ layout for Jellyfin, Plex, Kodi, Kavita or Komga.
 | Manga  | AniList, MangaDex as fallback | none |
 | Comics | [ComicVine](https://comicvine.gamespot.com/api/) | free key; without one, files are named from the file name |
 
+## Graphical interface
+
+`mrn-gui` (or `mrn gui`) does the same as `mrn rename`, in a window:
+
+1. **Add files…** or **Add folder…**, and optionally a **Library folder** to move them into.
+2. Pick the media type, action, naming preset and extras, then **Preview**.
+3. If a match is uncertain, pick the right title from the list, search with another title, or skip.
+4. Check the new names and press **Move N files**. **Undo** reverts the batch right away; the
+   **History** tab lists every batch, from the CLI too, with an Undo button each.
+
+The **Settings** tab stores your TMDB and ComicVine keys in the config file and opens the file
+for everything else. The AppImage opens the GUI when you start it from your app menu or file
+manager, and behaves as the `mrn` CLI when you run it in a terminal.
+
 ## Install
 
 ### AppImage (any x86_64 distro)
 
-One self-contained file, no dependencies besides glibc:
+One self-contained file with the CLI and the GUI. It needs glibc 2.35 or newer
+(Ubuntu 22.04+, Debian 12+, Fedora 36+, Arch) and, for the GUI, a Vulkan or OpenGL driver.
+Download it from the [releases page](https://github.com/Akiro-aki/media_renamer/releases).
 
 ```sh
-install -Dm755 mrn-0.1.0-x86_64.AppImage ~/.local/bin/mrn
+install -Dm755 mrn-0.2.0-x86_64.AppImage ~/.local/bin/mrn
 mrn config init          # writes ~/.config/mrn/config.toml
+mrn gui                  # or double-click the AppImage
 ```
 
-`~/.local/bin` must be on your `PATH`. Shell completions and a man page:
+`~/.local/bin` must be on your `PATH`. To get a menu entry, use AppImageLauncher
+or Gear Lever, or copy `mrn.desktop` from `packaging/appimage/` to
+`~/.local/share/applications/` and change its `Exec=` to the AppImage's path. Shell completions and a man page:
 
 ```sh
 mrn completions fish > ~/.config/fish/completions/mrn.fish
@@ -38,20 +57,24 @@ Build the AppImage yourself (output goes to `dist/`):
 
 ```sh
 packaging/appimage/build.sh               # host toolchain
-packaging/appimage/build.sh --container   # in Debian bookworm (podman/docker): runs on older distros
+packaging/appimage/build.sh --container   # in Debian bookworm (podman/docker): runs on most distros
 ```
 
 The script uses `appimagetool` from `PATH` (or `APPIMAGETOOL=/path`) and
 otherwise downloads it from the AppImage project's GitHub releases. A host
-build on a rolling distro needs the same or newer glibc on the target
-(the script prints the minimum); `--container` lowers that to glibc 2.36.
+build needs the same or newer glibc on the target as the build machine
+(the script prints the minimum), which on a rolling distro is very recent;
+use `--container` for releases (it measured glibc 2.35: Ubuntu 22.04+, Debian 12+, Fedora 36+).
 
 ### From source
 
 ```sh
 cargo install --path crates/mrn-cli
+cargo install --path crates/mrn-gui      # optional, the GUI
 mrn config init
 ```
+
+The GUI needs a Vulkan or OpenGL driver and Wayland or X11 at runtime; nothing extra at build time.
 
 Put your keys in the config file, or set `TMDB_API_KEY` and `COMICVINE_API_KEY`.
 
@@ -136,6 +159,7 @@ fall back to copy-and-delete, and undo works the same way.
 - `crates/mrn-core`: library (parse → detect → providers/matcher → format → ops/history, extras).
   The `pipeline` module is the API a GUI would use.
 - `crates/mrn-cli`: the `mrn` binary.
+- `crates/mrn-gui`: the `mrn-gui` binary (iced).
 - `packaging/appimage`: AppImage build script, `AppRun`, desktop entry, icon.
 - `crates/mrn-core/tests/fixtures/filenames.toml`: parser corpus. Add a case
   when you find a file name that parses wrong.

@@ -78,6 +78,8 @@ enum Command {
     },
     /// Print the man page (roff), e.g. `mrn man | man -l -`.
     Man,
+    /// Open the graphical interface (mrn-gui), optionally with files or folders.
+    Gui { paths: Vec<PathBuf> },
 }
 
 #[derive(Subcommand)]
@@ -209,6 +211,22 @@ fn init_logging(verbose: u8) {
         .init();
 }
 
+/// Replace this process with `mrn-gui`: the one next to this binary (cargo
+/// install, AppImage), else the one on `PATH`.
+fn launch_gui(paths: &[PathBuf]) -> anyhow::Result<ExitCode> {
+    use std::os::unix::process::CommandExt;
+    let sibling = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("mrn-gui")))
+        .filter(|p| p.is_file());
+    let program = sibling.unwrap_or_else(|| PathBuf::from("mrn-gui"));
+    let err = std::process::Command::new(&program).args(paths).exec();
+    anyhow::bail!(
+        "could not start {}: {err} (install it with `cargo install --path crates/mrn-gui`)",
+        program.display()
+    )
+}
+
 /// Write to stdout; a closed pipe (`mrn man | head`) is not an error.
 fn print_quietly(bytes: &[u8]) -> anyhow::Result<ExitCode> {
     use std::io::Write;
@@ -241,6 +259,7 @@ async fn main() -> ExitCode {
             clap_complete::generate(shell, &mut Cli::command(), "mrn", &mut out);
             print_quietly(&out)
         }
+        Command::Gui { paths } => launch_gui(&paths),
         Command::Man => {
             let mut out = Vec::new();
             clap_mangen::Man::new(Cli::command())

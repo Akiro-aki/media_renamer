@@ -1,10 +1,11 @@
 [Desktop Entry]
 Type=Application
-Name=mrn
+Name=mrn Media Renamer
 GenericName=Media Renamer
 Comment=Rename and organize movies, TV, anime, comics and manga using online metadata
-Exec=mrn
+Exec=mrn-gui
 Icon=mrn
-Terminal=true
-Categories=Utility;ConsoleOnly;
+Terminal=false
+StartupWMClass=mrn-gui
+Categories=Utility;
 Keywords=rename;media;jellyfin;plex;kodi;anime;manga;comics;filebot;

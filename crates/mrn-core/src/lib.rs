@@ -14,6 +14,7 @@ pub mod matcher;
 pub mod ops;
 pub mod parse;
 pub mod pipeline;
+pub mod preview;
 pub mod providers;
 pub mod scan;
 

@@ -29,6 +29,18 @@ impl Action {
             Action::Symlink => "symlink",
         }
     }
+
+    /// Imperative and past-tense verbs for messages: ("Move", "Moved").
+    /// A move without a library root is a rename.
+    pub fn verbs(self, in_place: bool) -> (&'static str, &'static str) {
+        match self {
+            Action::Move if in_place => ("Rename", "Renamed"),
+            Action::Move => ("Move", "Moved"),
+            Action::Copy => ("Copy", "Copied"),
+            Action::Hardlink => ("Hardlink", "Hardlinked"),
+            Action::Symlink => ("Symlink", "Symlinked"),
+        }
+    }
 }
 
 impl fmt::Display for Action {

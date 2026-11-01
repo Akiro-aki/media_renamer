@@ -1,0 +1,23 @@
+[package]
+name = "mrn-gui"
+description = "Graphical front end for mrn, the media renamer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "mrn-gui"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.104"
+futures = "0.3.34"
+iced = { version = "0.14", features = ["tokio"] }
+mrn-core = { path = "../mrn-core" }
+rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread"] }
+
+[dev-dependencies]
+iced_test = "0.14"
+tempfile = "3.27"

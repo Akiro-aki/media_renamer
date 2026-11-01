@@ -148,20 +148,25 @@ impl Config {
     /// Load from `path` (or the default path). A missing file gives defaults.
     /// Environment variables override file values.
     pub fn load(path: Option<&Path>) -> Result<Config> {
+        let mut config = Self::load_file(path)?;
+        config.apply_env();
+        config.expand_paths();
+        Ok(config)
+    }
+
+    /// Like [`Config::load`] but without environment overrides or path
+    /// expansion: what the file itself says (for editing it).
+    pub fn load_file(path: Option<&Path>) -> Result<Config> {
         let path = match path {
             Some(p) => p.to_path_buf(),
             None => Self::default_path()?,
         };
-        let mut config = if path.exists() {
-            let text = std::fs::read_to_string(&path)
-                .with_context(|| format!("reading {}", path.display()))?;
-            toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?
-        } else {
-            Config::default()
-        };
-        config.apply_env();
-        config.expand_paths();
-        Ok(config)
+        if !path.exists() {
+            return Ok(Config::default());
+        }
+        let text =
+            std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+        toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
     }
 
     fn apply_env(&mut self) {
@@ -208,9 +213,70 @@ pub fn expand_tilde(p: &Path) -> PathBuf {
     }
 }
 
+/// Set API keys under `[api]` in the config file at `path`, keeping its
+/// comments and layout. A missing file is first created from the starter
+/// template. An empty value clears the key. The file is made private (0600)
+/// because it holds secrets.
+pub fn save_api_keys(path: &Path, keys: &[(&str, &str)]) -> Result<()> {
+    let text = if path.exists() {
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?
+    } else {
+        Config::template().to_string()
+    };
+    let mut doc: toml_edit::DocumentMut = text
+        .parse()
+        .with_context(|| format!("parsing {}", path.display()))?;
+    if !doc.contains_table("api") {
+        doc["api"] = toml_edit::table();
+    }
+    for (name, value) in keys {
+        let value = value.trim();
+        match doc["api"].get_mut(name) {
+            // Replace the value but keep the comment lines above it.
+            Some(item) if item.is_value() => {
+                let decor = item.as_value().map(|v| v.decor().clone());
+                *item = toml_edit::value(value);
+                if let (Some(decor), Some(v)) = (decor, item.as_value_mut()) {
+                    *v.decor_mut() = decor;
+                }
+            }
+            _ => doc["api"][name] = toml_edit::value(value),
+        }
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(path, doc.to_string()).with_context(|| format!("writing {}", path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn save_api_keys_keeps_comments() {
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("sub/config.toml");
+        save_api_keys(&path, &[("tmdb", " abc123 ")]).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("# Free key from https://www.themoviedb.org"), "{text}");
+        assert!(text.contains("tmdb = \"abc123\""), "{text}");
+        assert!(text.contains("[general]"));
+
+        std::fs::write(&path, "# mine\n[general]\nthreshold = 0.9\n").unwrap();
+        save_api_keys(&path, &[("tmdb", "k1"), ("comicvine", "")]).unwrap();
+        let c = Config::load(Some(&path)).unwrap();
+        assert_eq!(c.api.tmdb.as_deref(), Some("k1"));
+        assert_eq!(c.api.comicvine, None);
+        assert_eq!(c.general.threshold, 0.9);
+        assert!(std::fs::read_to_string(&path).unwrap().starts_with("# mine"));
+    }
 
     #[test]
     fn template_parses() {

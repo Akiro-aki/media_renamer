@@ -43,11 +43,11 @@ if ((container)); then
     "$engine" run --rm \
         -v "$root:/src:z" -v "$target:/target:z" -v "$cache/cargo-registry:/usr/local/cargo/registry:z" \
         -e CARGO_TARGET_DIR=/target -w /src \
-        "$image" cargo build --release --locked -p mrn-cli
+        "$image" cargo build --release --locked -p mrn-cli -p mrn-gui
     bin="$target/release/mrn"
 else
     log "Building with $(cargo --version)"
-    (cd "$root" && cargo build --release --locked -p mrn-cli)
+    (cd "$root" && cargo build --release --locked -p mrn-cli -p mrn-gui)
     target_dir="$(cd "$root" && cargo metadata --format-version 1 --no-deps |
         sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')"
     bin="$target_dir/release/mrn"
@@ -55,13 +55,14 @@ fi
 [[ -x "$bin" ]] || { echo "binary not found: $bin" >&2; exit 1; }
 
 version="$("$bin" --version | awk '{print $2}')"
-glibc="$(objdump -T "$bin" 2>/dev/null | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1 || true)"
+glibc="$(objdump -T "$bin" "$(dirname "$bin")/mrn-gui" 2>/dev/null | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1 || true)"
 
 # 2. The AppDir.
 appdir="$cache/AppDir"
 log "Assembling AppDir for mrn $version"
 rm -rf "$appdir"
 install -Dm755 "$bin" "$appdir/usr/bin/mrn"
+install -Dm755 "$(dirname "$bin")/mrn-gui" "$appdir/usr/bin/mrn-gui"
 install -Dm755 "$here/AppRun" "$appdir/AppRun"
 install -Dm644 "$here/mrn.desktop" "$appdir/mrn.desktop"
 install -Dm644 "$here/mrn.desktop" "$appdir/usr/share/applications/mrn.desktop"

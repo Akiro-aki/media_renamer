@@ -2,7 +2,7 @@
 
 use std::io::IsTerminal;
 use std::path::Path;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use console::style;
 use dialoguer::theme::ColorfulTheme;
@@ -127,28 +127,6 @@ pub fn truncate(s: &str, max: usize) -> String {
     let mut out: String = s.chars().take(max.saturating_sub(1)).collect();
     out.push('…');
     out
-}
-
-/// Show `p` relative to `base` when it is inside it.
-pub fn relative(p: &Path, base: &Path) -> String {
-    p.strip_prefix(base)
-        .map(|r| r.display().to_string())
-        .unwrap_or_else(|_| p.display().to_string())
-}
-
-/// "5 min ago", "3 days ago".
-pub fn ago(unix_secs: i64) -> String {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(unix_secs);
-    let d = (now - unix_secs).max(0);
-    match d {
-        0..60 => "just now".into(),
-        60..3600 => format!("{} min ago", d / 60),
-        3600..86400 => format!("{} h ago", d / 3600),
-        _ => format!("{} days ago", d / 86400),
-    }
 }
 
 pub fn warn(msg: &str) {

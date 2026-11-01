@@ -1,4 +1,9 @@
 #!/bin/sh
-# Entry point of the mrn AppImage: run the bundled binary with all arguments.
+# Entry point of the mrn AppImage.
+#   no arguments, no terminal (app menu, file manager) -> the GUI
+#   anything else                                       -> the mrn CLI ("mrn gui" opens the GUI too)
 HERE="$(dirname "$(readlink -f "$0")")"
+if [ "$#" -eq 0 ] && [ ! -t 0 ] && [ ! -t 1 ]; then
+    exec "$HERE/usr/bin/mrn-gui"
+fi
 exec "$HERE/usr/bin/mrn" "$@"

@@ -6,13 +6,13 @@ roadmap, see [DEVELOPMENT.md](DEVELOPMENT.md). For user docs, see the [README](.
 ## Overview
 
 ```
-                ┌──────────── mrn-cli (bin "mrn") ────────────┐
-                │ main.rs   clap args, dispatch, logging      │
-                │ rename.rs rename + info, preview, confirm   │
-                │ ui.rs     PromptChooser, spinner, helpers   │
-                │ manage.rs history / undo / config / cache   │
-                └──────────────────────┬──────────────────────┘
-                                       │ uses only pipeline::Engine + a few types
+ ┌──────── mrn-cli (bin "mrn") ────────┐   ┌──────── mrn-gui (bin "mrn-gui", iced) ───────┐
+ │ main.rs   clap args, dispatch       │   │ main.rs        app shell, tabs, file drop    │
+ │ rename.rs rename + info, confirm    │   │ worker.rs      job thread, GuiChooser        │
+ │ ui.rs     PromptChooser, spinner    │   │ rename_tab.rs  sources, options, preview     │
+ │ manage.rs history/undo/config/cache │   │ history_tab.rs / settings_tab.rs / widgets.rs│
+ └──────────────────┬──────────────────┘   └───────────────────────┬──────────────────────┘
+                    └──────── pipeline::Engine + preview::Preview ──┘
 ┌──────────────────────────── mrn-core (lib) ──────────────────────────────┐
 │ scan ─► parse ─► detect ─► providers + matcher ─► format ─► ops ─► history│
 │                                   │                          └─► extras  │
@@ -21,8 +21,23 @@ roadmap, see [DEVELOPMENT.md](DEVELOPMENT.md). For user docs, see the [README](.
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
-The CLI is deliberately thin. A future GUI should depend on `mrn-core` and
-call the same `Engine` methods, implementing `Chooser` with a dialog.
+Both front ends are thin. They call the same `Engine` methods and show the
+same `preview::Preview`; they differ only in their `Chooser`.
+
+### The GUI (`mrn-gui`)
+
+- iced 0.14 (Elm-style: `update`/`view`), system light/dark theme, file pickers through the
+  XDG desktop portal (`rfd` with `xdg-portal`, so no GTK is linked).
+- A rename runs in `worker::start` on its own thread with its own tokio runtime, because
+  `Chooser::choose` blocks until the user answers. The worker sends `Event`s (status, `Choose`
+  prompt, `Preview`, progress, `Finished`) over a futures channel that the GUI consumes with
+  `Task::run`; the GUI answers with `Command::Choice`/`Command::Apply` over a std channel.
+- The worker parks after the preview until `Apply`. Dropping the `Job` cancels: pending prompts
+  answer "skip" and nothing is applied. Changing any option drops the job (the preview is stale).
+  Events carry a job id so a cancelled job's late events are ignored.
+- History, undo and config writes run on short-lived threads (`worker::blocking`).
+- Settings edits only `[api]` through `config::save_api_keys` (toml_edit, keeps comments, 0600).
+- Drag and drop works on X11 only: winit has no Wayland DnD yet.
 
 ## Source map
 
@@ -51,6 +66,7 @@ call the same `Engine` methods, implementing `Chooser` with a dialog.
 | `extras/comicinfo.rs` | ComicInfo.xml build and `.cbz` injection |
 | `config.rs` + `config_template.toml` | Config struct, load and env overrides, XDG dirs, starter template |
 | `pipeline.rs` | `Options`, `Chooser`, `Engine`, `Item`, `Analysis`, `ExecEvent`, `build_fields` |
+| `preview.rs` | `Preview`/`PreviewRow`/`RowState`: display-ready rows shared by CLI and GUI; `relative`, `ago` |
 
 ## Runtime files (XDG, via the `directories` crate)
 
@@ -283,7 +299,9 @@ replaced, and the archive is swapped in atomically.
 
 | Suite | What |
 |---|---|
-| unit tests (34) in `mrn-core/src/**` | template, sanitize, presets, matcher, ops, history, cache, http (wiremock), each provider (wiremock), extras, nfo, comicinfo, scan, config template |
+| unit tests (37) in `mrn-core/src/**` | template, sanitize, presets, matcher, ops, history, cache, http (wiremock), each provider (wiremock), extras, nfo, comicinfo, scan, config template |
 | `mrn-core/tests/parser_corpus.rs` | 76 filename cases from `fixtures/filenames.toml` |
 | `mrn-core/tests/pipeline.rs` (3) | full TV + movie + anime (AniList→TMDB cross-ref) flow with nfo, execute, undo; uncertain match fail/ask/search; `--id` and `--offline` |
-| `mrn-cli/tests/cli.rs` (5) | real binary in isolated XDG dirs: rename/history/undo, `--yes` needed without a TTY, missing TMDB key message, config init/show masking, info, bad template |
+| `mrn-cli/tests/cli.rs` (6) | real binary in isolated XDG dirs: rename/history/undo, `--yes` needed without a TTY, missing TMDB key message, config init/show masking, info, bad template, completions/man |
+| `mrn-gui` `worker::tests` (1) | the GUI's job thread headless: offline preview → apply → undo, and cancel after preview leaves files alone |
+| `mrn-gui` `snapshots` (ignored) | renders every screen with sample data to PNG (`MRN_GUI_SNAPSHOTS=dir cargo test -p mrn-gui -- --ignored`) |

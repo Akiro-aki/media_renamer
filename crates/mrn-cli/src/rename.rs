@@ -9,11 +9,12 @@ use dialoguer::Confirm;
 use dialoguer::theme::ColorfulTheme;
 use mrn_core::config::{Config, Extras, expand_tilde};
 use mrn_core::history::History;
-use mrn_core::ops::{Action, ItemStatus, PlanItem};
-use mrn_core::pipeline::{Analysis, Engine, ExecEvent, Options, SkipUncertain};
+use mrn_core::ops::PlanItem;
+use mrn_core::pipeline::{Engine, ExecEvent, Options, SkipUncertain};
+use mrn_core::preview::{Preview, RowState};
 use mrn_core::scan::scan;
 
-use crate::ui::{self, PromptChooser, file_name, relative, warn};
+use crate::ui::{self, PromptChooser, file_name, warn};
 use crate::{InfoArgs, MatchArgs, RenameArgs};
 
 fn apply_match_args(opts: &mut Options, m: &MatchArgs) {
@@ -21,16 +22,6 @@ fn apply_match_args(opts: &mut Options, m: &MatchArgs) {
     opts.query = m.query.clone();
     opts.forced_id = m.id.clone();
     opts.offline = m.offline;
-}
-
-fn verbs(action: Action, in_place: bool) -> (&'static str, &'static str) {
-    match action {
-        Action::Move if in_place => ("Rename", "Renamed"),
-        Action::Move => ("Move", "Moved"),
-        Action::Copy => ("Copy", "Copied"),
-        Action::Hardlink => ("Hardlink", "Hardlinked"),
-        Action::Symlink => ("Symlink", "Symlinked"),
-    }
 }
 
 pub async fn run(args: RenameArgs, config_path: Option<&Path>) -> Result<ExitCode> {
@@ -81,18 +72,17 @@ pub async fn run(args: RenameArgs, config_path: Option<&Path>) -> Result<ExitCod
     spinner.finish_and_clear();
 
     let plan = engine.plan(&analysis, &opts);
-    let in_place = analysis.items.iter().all(|i| !i.organized);
-    let (verb, done_verb) = verbs(opts.action, in_place);
-    print_preview(&analysis, &plan);
+    let preview = Preview::build(&analysis, &plan);
+    let (verb, done_verb) = opts.action.verbs(preview.in_place);
+    print_preview(&preview, analysis.items.len());
     for w in &analysis.warnings {
         warn(w);
     }
 
     let runnable: Vec<&PlanItem> = plan.iter().filter(|p| p.status.is_runnable()).collect();
-    let unnamed = analysis.items.iter().filter(|i| i.target.is_err()).count();
     if runnable.is_empty() {
         println!("Nothing to do.");
-        return Ok(if unnamed > 0 { ExitCode::FAILURE } else { ExitCode::SUCCESS });
+        return Ok(if preview.unmatched > 0 { ExitCode::FAILURE } else { ExitCode::SUCCESS });
     }
     if args.dry_run {
         println!("{}", style("Dry run: no files were changed.").dim());
@@ -160,35 +150,24 @@ pub async fn run(args: RenameArgs, config_path: Option<&Path>) -> Result<ExitCod
 }
 
 /// Print what will happen to every file.
-fn print_preview(analysis: &Analysis, plan: &[PlanItem]) {
-    let mut ready = 0;
-    let mut skipped = 0;
-    for item in plan {
-        let meta = &analysis.items[item.tag];
-        let from = relative(&item.main.from, &meta.file.root);
-        let base = meta
-            .output_root
-            .clone()
-            .or_else(|| item.main.from.parent().map(Path::to_path_buf))
-            .unwrap_or_default();
-        let to = relative(&item.main.to, &base);
-        let extra = match item.sidecars.len() {
-            0 => String::new(),
-            n => format!("  (+{n} sidecar{})", if n == 1 { "" } else { "s" }),
-        };
-        let score = meta
-            .matched
-            .as_ref()
-            .map(|m| format!("  [{}:{} {:.0}%]", m.candidate.source(), m.candidate.id, m.score * 100.0))
-            .unwrap_or_else(|| "  [from file name]".into());
-        match &item.status {
-            ItemStatus::Ready | ItemStatus::Overwrite => {
-                ready += 1;
-                println!("  {}", style(from).dim());
-                let overwrite = if item.status == ItemStatus::Overwrite {
+fn print_preview(preview: &Preview, total: usize) {
+    for row in &preview.rows {
+        println!("  {}", style(&row.from).dim());
+        let to = row.to.as_deref().unwrap_or_default();
+        match &row.state {
+            RowState::Ready | RowState::Overwrite => {
+                let overwrite = if row.state == RowState::Overwrite {
                     style(" (overwrites)").red().to_string()
                 } else {
                     String::new()
+                };
+                let extra = match row.sidecars {
+                    0 => String::new(),
+                    n => format!("  (+{n} sidecar{})", if n == 1 { "" } else { "s" }),
+                };
+                let score = match (&row.matched_id, row.score) {
+                    (Some(id), Some(s)) => format!("  [{id} {:.0}%]", s * 100.0),
+                    _ => "  [from file name]".into(),
                 };
                 println!(
                     "  {} {}{overwrite}{}{}",
@@ -198,29 +177,14 @@ fn print_preview(analysis: &Analysis, plan: &[PlanItem]) {
                     style(score).dim()
                 );
             }
-            ItemStatus::Skip(reason) => {
-                skipped += 1;
-                println!("  {}", style(from).dim());
+            RowState::Skipped(reason) => {
                 println!("  {} {}", style("–").yellow(), style(format!("skipped: {reason}")).yellow());
             }
+            RowState::Unmatched(reason) => println!("  {} {}", style("✗").red(), style(reason).red()),
         }
     }
-    let mut failed = 0;
-    for item in analysis.items.iter().filter(|i| i.target.is_err()) {
-        failed += 1;
-        let reason = item.target.as_ref().err().map(String::as_str).unwrap_or_default();
-        println!("  {}", style(relative(&item.file.path, &item.file.root)).dim());
-        println!("  {} {}", style("✗").red(), style(reason).red());
-    }
     println!();
-    let mut parts = vec![format!("{ready} ready")];
-    if skipped > 0 {
-        parts.push(format!("{skipped} skipped"));
-    }
-    if failed > 0 {
-        parts.push(format!("{failed} not matched"));
-    }
-    println!("{} file(s): {}", analysis.items.len(), parts.join(", "));
+    println!("{total} file(s): {}", preview.summary());
 }
 
 /// Quote arguments containing spaces for the history log.

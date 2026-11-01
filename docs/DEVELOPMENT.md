@@ -1,6 +1,6 @@
 # Development log and handoff
 
-Last updated: **2026-11-01** (second session: AppImage packaging, small fixes). Start here when
+Last updated: **2026-11-01** (sessions 2 and 3: AppImage packaging, small fixes, the GUI). Start here when
 you pick the project up again. Architecture details are in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -34,15 +34,30 @@ All seven build steps from the plan are done:
 
 - **AppImage packaging** in `packaging/appimage/` (`build.sh`, `AppRun`, `mrn.desktop`, `mrn.svg`/`mrn.png`).
   The AppDir bundles the binary, man page, bash/zsh/fish completions and the README. `build.sh --container`
-  builds the binary in `rust:1-bookworm` for glibc 2.36; a host build on CachyOS needs glibc 2.39.
+  builds the binaries in `rust:1-bookworm`; the result needs glibc 2.35 (a host build on CachyOS needs 2.44).
 - `mrn completions <shell>` and `mrn man` (clap_complete, clap_mangen).
 - Fixed known issue 1: embedded ComicInfo.xml now carries the current UTC time (no date crate; see `comicinfo::zip_time`).
 - Fixed known issue 8: AniList search drops `format: NOVEL` entries; `--id anilist:N` still reaches a novel.
 - Verified the cross-filesystem move (former "not verified" item 4), see below.
+- Released as `v0.1.0` on GitHub (Akiro-aki/media_renamer) with the CLI-only AppImage.
+
+### Session 3 (2026-11-01): the GUI, released as v0.2.0
+
+- New crate `crates/mrn-gui` (bin `mrn-gui`, iced 0.14, chosen by the user over GTK4/egui for
+  easy AppImage packaging). Tabs: Rename (sources, options, preview, uncertain-match picker,
+  apply with progress, undo), History (batches with undo, "undo anyway" for changed files),
+  Settings (API keys, open config). Design notes in ARCHITECTURE.md ("The GUI").
+- Core additions so both front ends share logic: `preview.rs` (`Preview`, rows, `relative`, `ago`),
+  `Action::verbs`, `Config::load_file` (no env overrides), `config::save_api_keys` (toml_edit).
+  The CLI preview now prints from `Preview`.
+- `mrn gui [PATHS]` execs the sibling or `PATH` `mrn-gui`. The AppImage's `AppRun` opens the GUI
+  when started with no arguments and no terminal; the desktop entry is now the GUI's.
+- Release builds should use `build.sh --container`: on CachyOS the GUI binary needs glibc 2.44
+  (libm `cosh`/`sinh` and other maths symbols are re-versioned in new glibc).
 
 ### Verified
 
-- `cargo test --workspace` passes: 36 unit tests, the corpus (76 cases), 3 pipeline integration tests and 6 CLI tests.
+- `cargo test --workspace` passes: 37 core unit tests, the corpus (76 cases), 3 pipeline integration tests, 6 CLI tests and 1 GUI worker test (plus an ignored GUI snapshot test).
 - `cargo clippy --workspace --all-targets -- -D warnings` is clean.
 - Manual offline run on dummy files: dry run, real move with `--clean`, `history`, and `undo`. Undo restored everything, including folders pruned by `--clean`, and removed the created library folders.
 - **Live AniList:** `[SubsPlease] Sousou no Frieren - 12` → anilist:154587; One Piece and Chainsaw Man manga matched at 100%.
@@ -59,9 +74,12 @@ All seven build steps from the plan are done:
 1. **TMDB against the real API** (movies, TV, and anime episode titles). No key was available, so only wiremock tests cover it. Response shapes follow the TMDB v3 docs.
 2. **ComicVine against the real API** (needs a key). Same situation.
 3. **The interactive picker** (`ui.rs::prompt`) in a real terminal. Only the `Chooser` logic is tested, with a scripted chooser.
-4. **`build.sh --container`** (Debian bookworm build for glibc 2.36) was never run, and the AppImage
-   hasn't been tried on another distro.
-5. `hardlink` and `symlink` were unit-tested in a tempdir only, never through the CLI on real media.
+4. **The GUI by hand.** Checked: headless snapshots of every screen (dark and light), the worker
+   test (preview → apply → undo, cancel), and that the window opens on Hyprland from the
+   container-built AppImage via `mrn gui` and via a no-terminal launch. Not checked: the
+   portal file dialogs, a real uncertain-match pick, and X11 drag and drop.
+5. The AppImage hasn't been tried on another distro.
+6. `hardlink` and `symlink` were unit-tested in a tempdir only, never through the CLI on real media.
 
 ## Resuming work
 
@@ -81,7 +99,7 @@ cargo run -p mrn-cli -- --help
 - **Dummy media:** `truncate -s 1k "Name.S01E01.mkv"`. For a valid `.cbz`, run `python3 -c "import zipfile; z=zipfile.ZipFile('X v01.cbz','w'); z.writestr('001.jpg', b'x'); z.close()"`.
 - **TMDB key:** get a free one at https://www.themoviedb.org/settings/api, then `export TMDB_API_KEY=...`. Do verification item 1 first.
 - **Faster builds:** put the target dir on a Linux filesystem, e.g. `export CARGO_TARGET_DIR=~/.cache/cargo-target/media_renamer`.
-- **Git:** the first commit is tagged `v0.1.0` (2026-11-01, branch `master`). No remote is configured.
+- **Git:** `master` on https://github.com/Akiro-aki/media_renamer. Tags `v0.1.0` (CLI) and `v0.2.0` (GUI), both released with an AppImage. Build release AppImages with `packaging/appimage/build.sh --container`.
 
 ## Conventions
 
@@ -116,7 +134,7 @@ cargo run -p mrn-cli -- --help
 1. Verify TMDB live with a real key: movies, TV, daily shows, and anime cross-reference. Fix any response-shape surprises.
 2. Verify ComicVine live (key). Run `packaging/appimage/build.sh --container` and try the result on an older distro.
 3. Grow the corpus toward 150+ using real names from your library.
-4. Commit, tag `v0.1.0`, attach the AppImage to a release, write a PKGBUILD (Arch/CachyOS).
+4. Write a PKGBUILD (Arch/CachyOS).
 
 **Then:**
 - `--json` output for `rename -n`, `info` and `history` (scripting, GUI prototyping).
@@ -124,8 +142,13 @@ cargo run -p mrn-cli -- --help
 - Episode ordering options (DVD/absolute) and a per-run title language.
 - MangaDex chapter titles for `{t}` on manga.
 
+**GUI follow-ups:**
+- Per-row exclude checkboxes and per-row "match again" in the preview.
+- Editing library folders and templates in Settings (now only API keys).
+- Remember the last sources/options between runs.
+- Wayland drag and drop once winit supports it.
+
 **Later (v2):**
-- **GUI.** Build it on `mrn-core::pipeline` with a dialog-based `Chooser`. PyGObject was considered earlier; in Rust, gtk4-rs/relm4 fits a GTK desktop. Detect the desktop's toolkit first.
 - Watch-folder automation (a systemd user unit or torrent-client hook running `mrn rename --non-interactive -y`).
 - Subtitle download (OpenSubtitles hash lookup).
 - More providers: TheTVDB (paid key), AniDB (strict UDP API), MusicBrainz for music.
@@ -148,7 +171,9 @@ cargo run -p mrn-cli -- --help
 | reqwest with rustls | No OpenSSL dependency |
 | Jaro-Winkler + Levenshtein average | Jaro-Winkler alone matched "Dune" to "Dune: Part Two" |
 | Manual search keeps the file's year | Without it, "Dune (1984)" outranked "Dune (2021)" |
-| AppImage as the binary package; desktop entry with `Terminal=true` | User asked for it; mrn is a CLI, so the entry only matters for AppImage integrators |
+| AppImage as the binary package | User asked for it |
+| iced for the GUI, file dialogs via the XDG portal | User's choice; pure Rust, so the AppImage needs no bundled GTK/Qt; the portal follows the desktop's own dialog |
+| GUI work on a dedicated thread per job | `Chooser::choose` is synchronous and blocks until the user answers |
 | AppImage built with `APPIMAGE_EXTRACT_AND_RUN=1` and `--no-appstream` | Works without FUSE in containers/CI; no AppStream id is settled yet |
 | `mrn.png` committed next to `mrn.svg` | appimagetool rejects an SVG `.DirIcon`; a committed PNG keeps the build free of rsvg/ImageMagick |
 | ComicInfo timestamp computed by hand | The zip `time` feature would pull in the `time` crate for one call |

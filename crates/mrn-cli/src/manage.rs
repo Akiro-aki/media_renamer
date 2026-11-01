@@ -36,7 +36,7 @@ pub fn history(batch: Option<i64>, limit: usize) -> Result<ExitCode> {
                 };
                 t.add_row([
                     b.id.to_string(),
-                    ui::ago(b.created),
+                    mrn_core::preview::ago(b.created),
                     b.action,
                     files,
                     b.status,
