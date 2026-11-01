@@ -61,9 +61,10 @@ same `preview::Preview`; they differ only in their `Chooser`.
 | `format/mod.rs` | `Fields`, `Value`, `Formatter` (template list → relative path) |
 | `ops.rs` | `Action`, `Conflict`, `build_plan` (conflicts), `apply` (fs ops), `move_file`, `copy_file`, `prune_empty_dirs` |
 | `history.rs` | SQLite batch/op log and `undo` |
+| `trash.rs` | freedesktop.org trash on the file's own file system: `Trash::put`, `restore` |
 | `extras/mod.rs` | Which extra files to create where (`plan`) |
 | `extras/nfo.rs` | Kodi/Jellyfin nfo XML and a tiny XML builder/escaper |
-| `extras/comicinfo.rs` | ComicInfo.xml build and `.cbz` injection |
+| `extras/comicinfo.rs` | ComicInfo.xml build, `.cbz` injection (`inject`) and its reversal (`restore`) |
 | `config.rs` + `config_template.toml` | Config struct, load and env overrides, XDG dirs, starter template |
 | `pipeline.rs` | `Options`, `Chooser`, `Engine`, `Item`, `Analysis`, `ExecEvent`, `build_fields` |
 | `preview.rs` | `Preview`/`PreviewRow`/`RowState`: display-ready rows shared by CLI and GUI; `relative`, `ago` |
@@ -75,6 +76,7 @@ same `preview::Preview`; they differ only in their `Chooser`.
 | Config | `~/.config/mrn/config.toml` | `--config`, `$MRN_CONFIG` |
 | Cache | `~/.cache/mrn/cache.db` | `$XDG_CACHE_HOME` |
 | History | `~/.local/share/mrn/history.db` | `$XDG_DATA_HOME` |
+| Replaced files (`--conflict override`) | `~/.local/share/Trash`, or `<mount>/.Trash-$UID` for other file systems | `$XDG_DATA_HOME` |
 | API keys | config `[api]` | `$TMDB_API_KEY`, `$COMICVINE_API_KEY` (env wins) |
 | Logging | stderr | `-v`/`-vv`, `$RUST_LOG` |
 
@@ -100,10 +102,12 @@ same `preview::Preview`; they differ only in their `Chooser`.
 7. **Comic issue titles** (concurrent), only if `--comicinfo` is on or the comic template uses `{t}`. ComicVine allows only 200 requests per hour.
 8. **Name each file.** `find_episodes` matches by season+episode, then absolute, then air date. `build_fields` fills the fields, and `render_target` produces the full target path or an error string.
 
-`Engine::plan` turns items with targets into `ops::Request`s and calls `build_plan`.
+`Engine::plan` turns items with targets into `ops::Request`s and calls `build_plan`
+(which may reorder them, see below).
 
 `Engine::execute` begins a history batch and then, for each runnable plan item:
-- Run the main op. ComicInfo is embedded before `finish_op`, so the recorded size/mtime are final.
+- Run the main op (an `Overwrite` item passes `history.trash()` to `apply`), then `finish_op`.
+- Embed ComicInfo as a separate `OpKind::Embed` op that stores the entry it replaced.
 - Run the sidecar ops.
 - Write extras, each recorded as an `OpKind::Create` op.
 - With `--clean`, prune empty source dirs up to the scan root.
@@ -246,11 +250,16 @@ The table leaves out optional brackets. See `presets.rs` for exact strings.
 - A target equal to the source → `Skip("already named correctly")`.
 - Clash detection covers targets claimed earlier in the batch and existing files. A file that is the same inode as the source (a case-only rename or a hard link) is not a clash.
 - `skip` → Skip. `override` → `Overwrite` for disk clashes but Skip for batch clashes. `index` → `Name (1).ext` … `(99)`.
+- **Chain renames** (only with `move`): a target that another item moves away (A→B while B→C) is not a disk clash.
+  `build_plan` assumes every source is vacated, plans, drops the sources whose items turned out not to run, and
+  plans again until the assumption holds. `run_order` then sorts the items (Kahn, stable) so the item that frees a
+  path runs first. Items in a cycle (A→B, B→A) are skipped ("would trade names").
 - Sidecar targets are derived from the final main target (`<new stem><suffix>`).
 
 `apply`:
 - Creates parent directories and returns the ones it created.
-- Refuses an existing target unless overwriting. The comparison doesn't follow symlinks, so a link to the source counts as a different file.
+- Refuses an existing target unless given a `Trash`; then the existing file is moved to the trash first (put back if
+  the operation fails) and returned in `Applied::replaced`. The comparison doesn't follow symlinks, so a link to the source counts as a different file.
 - `move` = `rename`, with copy + fsync + remove on `CrossesDevices`.
 - `copy` writes `.<name>.mrn-part`, keeps the mtime, fsyncs, then renames.
 - `hardlink`; `symlink` (to the absolute source path).
@@ -262,16 +271,25 @@ Schema:
 ```sql
 batches(id, created, action, args, status)          -- running | done | partial | undone
 ops(id, batch, kind, src BLOB, dst BLOB, status,     -- pending | done | failed | undone
-    size, mtime_ns, overwrote, error)
+    size, mtime_ns, overwrote, error,
+    backup BLOB,                                     -- trash path of the file this op replaced
+    data BLOB)                                       -- embed: the previous ComicInfo.xml (NULL = none)
 dirs(batch, path BLOB)                               -- folders the batch created
 ```
 
 Paths are stored as raw bytes, so non-UTF-8 names work.
 
-- **Recording:** `start_op` (pending) runs before touching the disk; `finish_op` stats the target afterwards.
+- **Recording:** `start_op` (pending) runs before touching the disk; `finish_op` stats the target afterwards
+  and records the trash path of a replaced file; `finish_embed` records the replaced ComicInfo.xml.
+- **Migration:** `History::open` adds `backup`/`data` to older databases. Old ops with `overwrote = 1` and no
+  backup still warn that the replaced file can't be restored.
 - **`undo` order:** reverse op order.
   - `move` → move back, refusing if the original path is occupied.
   - `copy` / `hardlink` / `symlink` / `create` → delete.
+  - then, if the op replaced a file, move it back from the trash and remove its `.trashinfo`.
+  - `embed` → rewrite the archive with the previous ComicInfo.xml (or none), keeping its mtime. Skipped when a
+    copy in the same batch made the archive (it is deleted next). Afterwards the earlier ops on that archive
+    are re-stat'ed, since they recorded it before the embed.
   - Ops whose target changed (size or mtime) are skipped unless `force`.
   - Created dirs are then removed deepest-first if empty.
   - The batch becomes `undone`, or `partial` if anything was skipped. `mrn undo` picks the newest batch that isn't `undone`.
@@ -293,15 +311,26 @@ target's folder, or its parent if that folder is a season folder.
 
 ComicInfo is embedded only with `move` or `copy`, only into `.cbz`/`.zip`.
 Existing entries are copied raw (no recompression), any old `ComicInfo.xml` is
-replaced, and the archive is swapped in atomically.
+replaced (and returned for the history), the archive keeps its mtime and is
+swapped in atomically.
+
+## Trash (`trash.rs`)
+
+Follows the freedesktop.org trash spec, but only ever uses a trash on the
+file's own file system, so trashing is a rename: the home trash when the file
+shares its device, else `$top/.Trash/$uid` (an admin `.Trash` with the sticky
+bit) or `$top/.Trash-$uid` at the mount root. The `.trashinfo` is created with
+`create_new` first to reserve the name; `Path=` is absolute for the home trash
+and relative to the mount root otherwise. If no trash is usable, the overwrite
+fails and the existing file stays.
 
 ## Tests
 
 | Suite | What |
 |---|---|
-| unit tests (37) in `mrn-core/src/**` | template, sanitize, presets, matcher, ops, history, cache, http (wiremock), each provider (wiremock), extras, nfo, comicinfo, scan, config template |
+| unit tests (44) in `mrn-core/src/**` | template, sanitize, presets, matcher, ops (incl. chain renames, replace via trash), history (incl. trash restore, ComicInfo revert, migration), trash, cache, http (wiremock), each provider (wiremock), extras, nfo, comicinfo, scan, config template |
 | `mrn-core/tests/parser_corpus.rs` | 76 filename cases from `fixtures/filenames.toml` |
 | `mrn-core/tests/pipeline.rs` (3) | full TV + movie + anime (AniList→TMDB cross-ref) flow with nfo, execute, undo; uncertain match fail/ask/search; `--id` and `--offline` |
-| `mrn-cli/tests/cli.rs` (6) | real binary in isolated XDG dirs: rename/history/undo, `--yes` needed without a TTY, missing TMDB key message, config init/show masking, info, bad template, completions/man |
+| `mrn-cli/tests/cli.rs` (7) | real binary in isolated XDG dirs: rename/history/undo, `--conflict override` → trash → undo, `--yes` needed without a TTY, missing TMDB key message, config init/show masking, info, bad template, completions/man |
 | `mrn-gui` `worker::tests` (1) | the GUI's job thread headless: offline preview → apply → undo, and cancel after preview leaves files alone |
 | `mrn-gui` `snapshots` (ignored) | renders every screen with sample data to PNG (`MRN_GUI_SNAPSHOTS=dir cargo test -p mrn-gui -- --ignored`) |

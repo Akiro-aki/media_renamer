@@ -139,7 +139,7 @@ pub struct RenameArgs {
     /// move, copy, hardlink or symlink.
     #[arg(short, long, value_parser = parse_action)]
     pub action: Option<Action>,
-    /// When a target exists: skip, override or index.
+    /// When a target exists: skip, override (the replaced file goes to the trash) or index.
     #[arg(long, value_parser = parse_conflict)]
     pub conflict: Option<Conflict>,
     /// Minimum confidence (0-1) to accept a match without asking.

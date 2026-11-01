@@ -157,7 +157,7 @@ fn print_preview(preview: &Preview, total: usize) {
         match &row.state {
             RowState::Ready | RowState::Overwrite => {
                 let overwrite = if row.state == RowState::Overwrite {
-                    style(" (overwrites)").red().to_string()
+                    style(" (replaces existing; the old file goes to the trash)").red().to_string()
                 } else {
                     String::new()
                 };

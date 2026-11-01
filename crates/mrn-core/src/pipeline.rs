@@ -604,7 +604,7 @@ impl Engine {
                 })
             })
             .collect();
-        ops::build_plan(requests, opts.conflict)
+        ops::build_plan(requests, opts.conflict, opts.action)
     }
 
     /// Carry out a plan, recording every step in `history`.
@@ -627,24 +627,24 @@ impl Engine {
 
         for item in plan.iter().filter(|p| p.status.is_runnable()) {
             let meta = &analysis.items[item.tag];
-            let overwrite = item.status == ItemStatus::Overwrite;
+            // Files replaced with `--conflict override` go to the trash.
+            let replace = (item.status == ItemStatus::Overwrite).then(|| history.trash());
 
-            // Main file, with ComicInfo embedded before the result is recorded.
             let main = &item.main;
             let op_id = history.start_op(batch, opts.action.into(), Some(&main.from), &main.to)?;
-            match ops::apply(main, opts.action, overwrite) {
-                Ok(dirs) => {
-                    history.add_dirs(batch, &dirs)?;
+            match ops::apply(main, opts.action, replace) {
+                Ok(applied) => {
+                    history.add_dirs(batch, &applied.dirs)?;
+                    history.finish_op(op_id, &main.to, applied.replaced.as_deref())?;
                     // General notices ("not embedded with --action ...") are shown once;
                     // per-file failures every time.
-                    if let Some(w) = self.embed_comicinfo(meta, &main.to, opts) {
+                    if let Some(w) = self.embed_comicinfo(meta, &main.to, opts, history, batch)? {
                         let general = w.starts_with("ComicInfo");
                         if !(general && warned_comicinfo) {
                             on_event(ExecEvent::Warning(w));
                         }
                         warned_comicinfo |= general;
                     }
-                    history.finish_op(op_id, &main.to, overwrite)?;
                     report.done += 1;
                     on_event(ExecEvent::Done { op: main });
                 }
@@ -661,10 +661,10 @@ impl Engine {
 
             for op in &item.sidecars {
                 let id = history.start_op(batch, opts.action.into(), Some(&op.from), &op.to)?;
-                match ops::apply(op, opts.action, overwrite) {
-                    Ok(dirs) => {
-                        history.add_dirs(batch, &dirs)?;
-                        history.finish_op(id, &op.to, overwrite)?;
+                match ops::apply(op, opts.action, replace) {
+                    Ok(applied) => {
+                        history.add_dirs(batch, &applied.dirs)?;
+                        history.finish_op(id, &op.to, applied.replaced.as_deref())?;
                         report.done += 1;
                         on_event(ExecEvent::Done { op });
                     }
@@ -694,25 +694,41 @@ impl Engine {
         Ok(report)
     }
 
-    /// Embed ComicInfo.xml if enabled. Returns a warning on failure.
-    fn embed_comicinfo(&self, item: &Item, target: &Path, opts: &Options) -> Option<String> {
+    /// Embed ComicInfo.xml if enabled, recorded as an `embed` op so undo can
+    /// revert it. Returns a warning when it is skipped or fails.
+    fn embed_comicinfo(
+        &self,
+        item: &Item,
+        target: &Path,
+        opts: &Options,
+        history: &History,
+        batch: i64,
+    ) -> Result<Option<String>> {
         if !opts.extras.comicinfo || !item.kind.is_book() {
-            return None;
+            return Ok(None);
         }
-        let m = item.matched.as_ref()?;
+        let Some(m) = item.matched.as_ref() else { return Ok(None) };
         if !matches!(opts.action, Action::Move | Action::Copy) {
-            return Some(format!(
+            return Ok(Some(format!(
                 "ComicInfo.xml is not embedded with --action {} (it would modify the original)",
                 opts.action
-            ));
+            )));
         }
         if !comicinfo::supported(target) {
-            return Some("ComicInfo.xml can only be embedded in .cbz files; skipped others".into());
+            return Ok(Some("ComicInfo.xml can only be embedded in .cbz files; skipped others".into()));
         }
         let xml = comicinfo::build(item.kind, &m.candidate, &item.info, item.issue.as_ref());
-        comicinfo::inject(target, &xml)
-            .err()
-            .map(|e| format!("{}: {e:#}", target.display()))
+        let id = history.start_op(batch, OpKind::Embed, None, target)?;
+        match comicinfo::inject(target, &xml) {
+            Ok(previous) => {
+                history.finish_embed(id, target, previous.as_deref())?;
+                Ok(None)
+            }
+            Err(e) => {
+                history.fail_op(id, &format!("{e:#}"))?;
+                Ok(Some(format!("{}: {e:#}", target.display())))
+            }
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -750,7 +766,7 @@ impl Engine {
             match result {
                 Ok(()) => {
                     let id = history.start_op(batch, OpKind::Create, None, &extra.path)?;
-                    history.finish_op(id, &extra.path, false)?;
+                    history.finish_op(id, &extra.path, None)?;
                     report.extras += 1;
                     on_event(ExecEvent::Extra { path: &extra.path });
                 }

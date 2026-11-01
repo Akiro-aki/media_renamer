@@ -1,7 +1,7 @@
 //! ComicInfo.xml (Anansi schema v2) for Komga/Kavita, embedded into `.cbz`.
 
 use std::fs::File;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
@@ -64,43 +64,70 @@ pub fn supported(path: &Path) -> bool {
 }
 
 /// Write `xml` as ComicInfo.xml into the archive, replacing any existing one.
-/// Entries are copied without recompression; the archive is replaced
-/// atomically.
-pub fn inject(archive: &Path, xml: &str) -> Result<()> {
+/// Returns the entry it replaced, so the change can be undone with
+/// [`restore`].
+pub fn inject(archive: &Path, xml: &str) -> Result<Option<Vec<u8>>> {
+    rewrite(archive, Some(xml.as_bytes()))
+}
+
+/// Undo [`inject`]: put back the `previous` ComicInfo.xml, or remove the
+/// entry if the archive had none.
+pub fn restore(archive: &Path, previous: Option<&[u8]>) -> Result<()> {
+    rewrite(archive, previous).map(drop)
+}
+
+/// Replace the ComicInfo.xml entry with `content` (or drop it) and return the
+/// old entry. Other entries are copied without recompression, the archive is
+/// replaced atomically and keeps its modification time.
+fn rewrite(archive: &Path, content: Option<&[u8]>) -> Result<Option<Vec<u8>>> {
     if !supported(archive) {
         bail!("ComicInfo can only be embedded in .cbz/.zip archives");
     }
     let src = File::open(archive).with_context(|| format!("opening {}", archive.display()))?;
+    let mtime = src.metadata().and_then(|m| m.modified()).ok();
     let mut zin = ZipArchive::new(src).with_context(|| format!("reading {}", archive.display()))?;
 
     let tmp = archive.with_file_name(format!(
         ".{}.mrn-part",
         archive.file_name().unwrap_or_default().to_string_lossy()
     ));
-    let result = (|| -> Result<()> {
+    let result = (|| -> Result<Option<Vec<u8>>> {
+        let mut previous = None;
         let mut zout = ZipWriter::new(File::create(&tmp)?);
         for i in 0..zin.len() {
-            let entry = zin.by_index_raw(i)?;
-            if entry.name().is_ok_and(|n| n.eq_ignore_ascii_case(ENTRY)) {
+            let is_info = zin.by_index_raw(i)?.name().is_ok_and(|n| n.eq_ignore_ascii_case(ENTRY));
+            if is_info {
+                let mut old = Vec::new();
+                zin.by_index(i)?.read_to_end(&mut old)?;
+                previous = Some(old);
                 continue;
             }
-            zout.raw_copy_file(entry)?;
+            zout.raw_copy_file(zin.by_index_raw(i)?)?;
         }
-        let options = SimpleFileOptions::default()
-            .compression_method(CompressionMethod::Deflated)
-            .last_modified_time(zip_now());
-        zout.start_file(ENTRY, options)?;
-        zout.write_all(xml.as_bytes())?;
+        if let Some(content) = content {
+            let options = SimpleFileOptions::default()
+                .compression_method(CompressionMethod::Deflated)
+                .last_modified_time(zip_now());
+            zout.start_file(ENTRY, options)?;
+            zout.write_all(content)?;
+        }
         let file = zout.finish()?;
+        if let Some(t) = mtime {
+            let _ = file.set_modified(t);
+        }
         file.sync_all()?;
-        Ok(())
+        Ok(previous)
     })();
-    if let Err(e) = result {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(e.context(format!("rewriting {}", archive.display())));
+    match result {
+        Ok(previous) => {
+            std::fs::rename(&tmp, archive)?;
+            Ok(previous)
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            Err(e.context(format!("rewriting {}", archive.display())))
+        }
     }
-    std::fs::rename(&tmp, archive)?;
-    Ok(())
 }
 
 /// The current UTC time as a zip timestamp. The zip crate's `time` feature
@@ -138,7 +165,6 @@ fn zip_time(secs: u64) -> DateTime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Read;
 
     #[test]
     fn builds_and_injects() {
@@ -172,7 +198,7 @@ mod tests {
         assert!(xml.contains("<Month>3</Month>"));
         assert!(!xml.contains("<Manga>"));
 
-        inject(&cbz, &xml).unwrap();
+        assert_eq!(inject(&cbz, &xml).unwrap().as_deref(), Some(&b"<old/>"[..]));
         let mut z = ZipArchive::new(File::open(&cbz).unwrap()).unwrap();
         let names: Vec<String> = z.file_names().filter_map(|n| n.ok()).map(|n| n.to_string()).collect();
         assert_eq!(names.len(), 2, "{names:?}");
@@ -185,6 +211,16 @@ mod tests {
         let mut img = Vec::new();
         z.by_name("001.jpg").unwrap().read_to_end(&mut img).unwrap();
         assert_eq!(img, b"jpegdata");
+        drop(z);
+
+        restore(&cbz, Some(b"<old/>")).unwrap();
+        let mut z = ZipArchive::new(File::open(&cbz).unwrap()).unwrap();
+        let mut s = String::new();
+        z.by_name(ENTRY).unwrap().read_to_string(&mut s).unwrap();
+        assert_eq!(s, "<old/>");
+        drop(z);
+        restore(&cbz, None).unwrap();
+        assert_eq!(ZipArchive::new(File::open(&cbz).unwrap()).unwrap().len(), 1);
     }
 
     #[test]

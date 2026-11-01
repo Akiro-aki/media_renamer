@@ -102,7 +102,7 @@ Useful flags for `rename`:
 | `-q TITLE` / `--id tmdb:1399` | search a different title, or use a specific entry (`tmdb`, `anilist`, `mangadex`, `comicvine`) |
 | `-f PRESET\|TEMPLATE` | `jellyfin` (default), `plex`, `kodi`, `anime`, `kavita`, `komga`, or a template |
 | `-a ACTION` | `move` (default), `copy`, `hardlink`, `symlink` |
-| `--conflict` | `skip` (default), `override`, `index` (`Name (1).mkv`) |
+| `--conflict` | `skip` (default), `override` (the replaced file goes to the trash), `index` (`Name (1).mkv`) |
 | `--nfo` `--artwork` `--comicinfo` | opt-in extras (see below) |
 | `--offline` | no lookups; tidy names from the file name only |
 | `--clean` | remove source folders left empty |
@@ -141,10 +141,16 @@ under `[extras]` in the config; `--no-extras` turns them off for one run.
 
 Every operation is logged to `~/.local/share/mrn/history.db` before it runs.
 `mrn undo [BATCH]` moves files back, deletes created links, copies and extras,
-and removes folders the batch created. Files changed since the rename are left
-alone unless you pass `--force`. Limits: a file replaced with
-`--conflict override` can't be restored, and ComicInfo.xml stays inside a cbz
-that is moved back.
+removes ComicInfo.xml it embedded (restoring an older one), and removes folders
+the batch created. Files changed since the rename are left alone unless you
+pass `--force`.
+
+A file replaced with `--conflict override` is moved to the trash (the one on
+the same disk, so nothing is copied), where your file manager can also restore
+it. `mrn undo` puts it back.
+
+Renames that depend on each other in one batch (A→B while B→C) run in the right
+order; two files that would trade names are skipped.
 
 Moves across filesystems (e.g. from an NTFS or network mount into your home)
 fall back to copy-and-delete, and undo works the same way.

@@ -1,6 +1,6 @@
 # Development log and handoff
 
-Last updated: **2026-11-01** (sessions 2 and 3: AppImage packaging, small fixes, the GUI). Start here when
+Last updated: **2026-11-01** (sessions 2–4: AppImage packaging, small fixes, the GUI, complete undo). Start here when
 you pick the project up again. Architecture details are in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -55,9 +55,23 @@ All seven build steps from the plan are done:
 - Release builds should use `build.sh --container`: on CachyOS the GUI binary needs glibc 2.44
   (libm `cosh`/`sinh` and other maths symbols are re-versioned in new glibc).
 
+### Session 4 (2026-11-01): complete undo, chain renames (unreleased)
+
+- Fixed known issue 3: `--conflict override` moves the replaced file to the freedesktop.org trash on the same
+  file system (new `trash.rs`), records the trash path in history, and `undo` puts it back.
+- Fixed known issue 2: ComicInfo embedding is recorded as an `embed` op holding the previous entry;
+  `undo` rewrites the archive back (`comicinfo::restore`). Embedding now keeps the archive's mtime.
+- Fixed known issue 4: chain renames in one batch (A→B while B→C) are planned and ordered; name swaps are skipped.
+- History schema: new `ops.backup` and `ops.data` columns, added in place to existing databases.
+- `build_plan` now takes the `Action`; `ops::apply` takes `Option<&Trash>` and returns `Applied`;
+  `History::finish_op` takes the replaced file's trash path instead of a bool.
+
 ### Verified
 
-- `cargo test --workspace` passes: 37 core unit tests, the corpus (76 cases), 3 pipeline integration tests, 6 CLI tests and 1 GUI worker test (plus an ignored GUI snapshot test).
+- `cargo test --workspace` passes: 44 core unit tests, the corpus (76 cases), 3 pipeline integration tests, 7 CLI tests and 1 GUI worker test (plus an ignored GUI snapshot test).
+- **Override → trash → undo on NTFS** (2026-11-01): debug binary, library on the fuseblk `/mnt/shared` mount.
+  The replaced file went to `/mnt/shared/.Trash-1000` with a mount-relative `Path=`; undo restored both files and
+  removed the trash entry. The home-trash path is covered by a CLI test.
 - `cargo clippy --workspace --all-targets -- -D warnings` is clean.
 - Manual offline run on dummy files: dry run, real move with `--clean`, `history`, and `undo`. Undo restored everything, including folders pruned by `--clean`, and removed the created library folders.
 - **Live AniList:** `[SubsPlease] Sousou no Frieren - 12` → anilist:154587; One Piece and Chainsaw Man manga matched at 100%.
@@ -99,6 +113,8 @@ cargo run -p mrn-cli -- --help
 - **Dummy media:** `truncate -s 1k "Name.S01E01.mkv"`. For a valid `.cbz`, run `python3 -c "import zipfile; z=zipfile.ZipFile('X v01.cbz','w'); z.writestr('001.jpg', b'x'); z.close()"`.
 - **TMDB key:** get a free one at https://www.themoviedb.org/settings/api, then `export TMDB_API_KEY=...`. Do verification item 1 first.
 - **Faster builds:** put the target dir on a Linux filesystem, e.g. `export CARGO_TARGET_DIR=~/.cache/cargo-target/media_renamer`.
+  `/home` is small: the debug dir there grew to 14 GB and filled the disk in session 4. If a build fails with
+  "No space left on device", `rm -rf ~/.cache/cargo-target/media_renamer/debug` (it rebuilds in a few minutes).
 - **Git:** `master` on https://github.com/Akiro-aki/media_renamer. Tags `v0.1.0` (CLI) and `v0.2.0` (GUI), both released with an AppImage. Build release AppImages with `packaging/appimage/build.sh --container`.
 
 ## Conventions
@@ -116,9 +132,9 @@ cargo run -p mrn-cli -- --help
 | # | Issue | Where | Notes |
 |---|-------|-------|-------|
 | 1 | ~~Embedded `ComicInfo.xml` entries are dated 1980~~ | `extras/comicinfo.rs` | fixed 2026-11-01 |
-| 2 | Undo doesn't remove ComicInfo.xml from a cbz it moves back | `history.rs` | could back up the original or record a "modify" op |
-| 3 | A file replaced with `--conflict override` can't be restored | `ops.rs`, `history.rs` | could move it to a trash folder first |
-| 4 | Chain renames in one batch (A→B while B→C) are treated as conflicts | `ops::build_plan` | the on-disk check doesn't know B will move away |
+| 2 | ~~Undo doesn't remove ComicInfo.xml from a cbz it moves back~~ | `history.rs` | fixed 2026-11-01: `embed` op with the previous entry |
+| 3 | ~~A file replaced with `--conflict override` can't be restored~~ | `ops.rs`, `history.rs` | fixed 2026-11-01: replaced files go to the trash. Batches recorded before still can't restore them |
+| 4 | ~~Chain renames in one batch (A→B while B→C) are treated as conflicts~~ | `ops::build_plan` | fixed 2026-11-01. Name swaps (A↔B) are still skipped; they would need a temporary name |
 | 5 | Files of one show with and without a year in the name form two lookup groups (two prompts) | `pipeline.rs` step 2 | could merge groups by title and resolve the year after |
 | 6 | Anime episode titles depend on a TMDB title cross-reference. Later-season AniList entries whose numbering restarts usually get no titles, which is deliberate (0.85 threshold plus year penalty) | `Engine::series_for` | possible improvement: AniList→TMDB id mapping via a mapping database |
 | 7 | ComicVine allows 200 requests per hour, so big comic batches with `{t}`/`--comicinfo` are slow | `providers/http.rs` | the cache helps on reruns |
@@ -138,7 +154,6 @@ cargo run -p mrn-cli -- --help
 
 **Then:**
 - `--json` output for `rename -n`, `info` and `history` (scripting, GUI prototyping).
-- Undo for overwritten files (issue 3) and ComicInfo (issue 2).
 - Episode ordering options (DVD/absolute) and a per-run title language.
 - MangaDex chapter titles for `{t}` on manga.
 

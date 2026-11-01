@@ -11,6 +11,7 @@ anyhow = "1.0.104"
 async-trait = "0.1.92"
 directories = "6.0.0"
 futures = "0.3.34"
+libc = "0.2.191"
 regex = "1.13.1"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "json", "gzip", "query"] }
 rusqlite = { version = "0.41.1", features = ["bundled"] }

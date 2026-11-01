@@ -675,7 +675,7 @@ impl State {
                         .spacing(6)
                         .align_y(Center);
                     if r.state == RowState::Overwrite {
-                        l = l.push(badge("replaces existing file", bad));
+                        l = l.push(badge("replaces existing file (old one goes to the trash)", bad));
                     }
                     if r.sidecars > 0 {
                         l = l.push(dim(format!("+{} sidecar{}", r.sidecars, if r.sidecars == 1 { "" } else { "s" })));
