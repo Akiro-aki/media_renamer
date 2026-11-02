@@ -160,8 +160,12 @@ pub struct RenameArgs {
     /// Embed ComicInfo.xml into .cbz files.
     #[arg(long)]
     pub comicinfo: bool,
+    /// Embed each volume's cover into .cbz files (for Kavita). For Komga use
+    /// --artwork with -f komga: covers are saved beside each book instead.
+    #[arg(long)]
+    pub embed_cover: bool,
     /// Turn off extras enabled in the config.
-    #[arg(long, conflicts_with_all = ["nfo", "artwork", "comicinfo"])]
+    #[arg(long, conflicts_with_all = ["nfo", "artwork", "comicinfo", "embed_cover"])]
     pub no_extras: bool,
 
     /// Remove source folders left empty after moving.

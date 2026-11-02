@@ -101,10 +101,15 @@ impl Http {
         .await
     }
 
+    /// Fetch a file (an image) into memory. Not cached.
+    pub async fn get_bytes(&self, url: &str) -> Result<Vec<u8>> {
+        let resp = self.send(url, || self.client.get(url)).await?;
+        Ok(resp.bytes().await.map_err(|e| e.without_url())?.to_vec())
+    }
+
     /// Download a file (artwork) to `dest`. Not cached.
     pub async fn download(&self, url: &str, dest: &Path) -> Result<()> {
-        let resp = self.send(url, || self.client.get(url)).await?;
-        let bytes = resp.bytes().await.map_err(|e| e.without_url())?;
+        let bytes = self.get_bytes(url).await?;
         let tmp = dest.with_extension("mrn-part");
         tokio::fs::write(&tmp, &bytes)
             .await

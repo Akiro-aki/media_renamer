@@ -59,3 +59,6 @@ anime_episodes = ["tmdb", "mal"]
 nfo = false        # Kodi/Jellyfin .nfo files
 artwork = false    # posters, fanart, covers
 comicinfo = false  # ComicInfo.xml inside .cbz
+# Each volume's cover inside .cbz, for Kavita (an extra first page). For Komga
+# use artwork = true with preset = "komga": covers go beside each book instead.
+embed_cover = false

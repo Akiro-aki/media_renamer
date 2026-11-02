@@ -85,6 +85,8 @@ pub struct Extras {
     pub artwork: bool,
     /// Embed ComicInfo.xml into .cbz archives (comics, manga).
     pub comicinfo: bool,
+    /// Embed each volume's cover into .cbz archives (for Kavita).
+    pub embed_cover: bool,
 }
 
 /// `[providers]`: which sources are searched, in order, for kinds with

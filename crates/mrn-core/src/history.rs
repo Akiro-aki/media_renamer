@@ -17,12 +17,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, bail};
 use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::extras::comicinfo;
+use crate::extras::{comicinfo, cover};
 use crate::ops::{self, Action};
 use crate::trash::{self, Trash};
 
 /// What an operation did. `Create` is a file written by extras (nfo, art);
-/// `Embed` is ComicInfo.xml written into an archive.
+/// `Embed` is ComicInfo.xml written into an archive, `Cover` a cover image
+/// added to one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpKind {
     Move,
@@ -31,6 +32,7 @@ pub enum OpKind {
     Symlink,
     Create,
     Embed,
+    Cover,
 }
 
 impl OpKind {
@@ -42,7 +44,14 @@ impl OpKind {
             OpKind::Symlink => "symlink",
             OpKind::Create => "create",
             OpKind::Embed => "embed",
+            OpKind::Cover => "cover",
         }
+    }
+
+    /// Ops that change an archive in place instead of creating a file. They
+    /// are not counted as files and are reverted by rewriting the archive.
+    pub fn edits_in_place(self) -> bool {
+        matches!(self, OpKind::Embed | OpKind::Cover)
     }
 
     fn parse(s: &str) -> OpKind {
@@ -52,6 +61,7 @@ impl OpKind {
             "symlink" => OpKind::Symlink,
             "create" => OpKind::Create,
             "embed" => OpKind::Embed,
+            "cover" => OpKind::Cover,
             _ => OpKind::Move,
         }
     }
@@ -93,6 +103,7 @@ pub struct OpRecord {
     /// Where the file this op replaced was moved (in the trash).
     pub backup: Option<PathBuf>,
     /// For `Embed`: the ComicInfo.xml the archive had before (`None` if none).
+    /// For `Cover`: the name of the entry it added.
     pub data: Option<Vec<u8>>,
     pub error: Option<String>,
 }
@@ -245,7 +256,8 @@ impl History {
         Ok(())
     }
 
-    /// Mark an `Embed` op done, keeping the ComicInfo.xml it replaced.
+    /// Mark an `Embed` op done, keeping the ComicInfo.xml it replaced, or a
+    /// `Cover` op, keeping the name of the entry it added.
     pub fn finish_embed(&self, op: i64, archive: &Path, previous: Option<&[u8]>) -> Result<()> {
         let (size, mtime) = stat(archive).unzip();
         self.conn.execute(
@@ -287,9 +299,9 @@ impl History {
         let mut stmt = self.conn.prepare(
             "SELECT b.id, b.created, b.action, b.args, b.status,
                     (SELECT COUNT(*) FROM ops o WHERE o.batch = b.id AND o.status = 'done'
-                        AND o.kind != 'embed'),
+                        AND o.kind NOT IN ('embed', 'cover')),
                     (SELECT COUNT(*) FROM ops o WHERE o.batch = b.id AND o.status = 'failed'
-                        AND o.kind != 'embed')
+                        AND o.kind NOT IN ('embed', 'cover'))
              FROM batches b ORDER BY b.id DESC LIMIT ?1",
         )?;
         let rows = stmt.query_map(params![limit as i64], |r| {
@@ -362,20 +374,20 @@ impl History {
             if op.status != "done" {
                 continue;
             }
-            // An embed is reverted in place unless an earlier op of this
-            // batch created the archive (it is about to be deleted anyway).
+            // An in-place edit is reverted unless an earlier op of this batch
+            // created the archive (it is about to be deleted anyway).
             let rewrite = !ops[i + 1..]
                 .iter()
-                .any(|o| o.to == op.to && o.status == "done" && !matches!(o.kind, OpKind::Move | OpKind::Embed));
+                .any(|o| o.to == op.to && o.status == "done" && o.kind != OpKind::Move && !o.kind.edits_in_place());
             match self.undo_op(op, force, rewrite, &mut report) {
                 Ok(()) => {
                     self.conn.execute(
                         "UPDATE ops SET status = 'undone' WHERE id = ?1",
                         params![op.id],
                     )?;
-                    if op.kind == OpKind::Embed {
+                    if op.kind.edits_in_place() {
                         // Earlier ops on this archive recorded it before the
-                        // embed; they now expect its current state.
+                        // edit; they now expect its current state.
                         let to = op.to.clone();
                         let (size, mtime) = stat(&to).unzip();
                         for earlier in ops[i + 1..].iter_mut().filter(|o| o.to == to) {
@@ -434,6 +446,17 @@ impl History {
             OpKind::Embed => {
                 if rewrite {
                     comicinfo::restore(&op.to, op.data.as_deref()).map_err(|e| format!("{e:#}"))?;
+                }
+                return Ok(());
+            }
+            OpKind::Cover => {
+                if rewrite {
+                    let name = op
+                        .data
+                        .as_deref()
+                        .and_then(|d| std::str::from_utf8(d).ok())
+                        .ok_or("no cover entry recorded")?;
+                    cover::remove(&op.to, name).map_err(|e| format!("{e:#}"))?;
                 }
                 return Ok(());
             }
@@ -551,6 +574,37 @@ mod tests {
         assert_eq!(fs::read(&src).unwrap(), b"new");
         assert_eq!(fs::read(&dst).unwrap(), b"old");
         assert!(fs::read_dir(d.path().join("Trash/files")).unwrap().next().is_none());
+    }
+
+    #[test]
+    fn undo_reverts_comicinfo_and_cover_in_one_batch() {
+        use std::io::Write;
+        let d = tempfile::tempdir().unwrap();
+        let h = History::open(&d.path().join("h.db")).unwrap();
+        let src = d.path().join("in.cbz");
+        let mut z = zip::ZipWriter::new(fs::File::create(&src).unwrap());
+        z.start_file("001.jpg", zip::write::SimpleFileOptions::default()).unwrap();
+        z.write_all(b"img").unwrap();
+        z.finish().unwrap();
+        let to = d.path().join("Manga v01.cbz");
+
+        let batch = h.begin_batch("move", "").unwrap();
+        let id = h.start_op(batch, OpKind::Move, Some(&src), &to).unwrap();
+        ops::move_file(&src, &to).unwrap();
+        h.finish_op(id, &to, None).unwrap();
+        let eid = h.start_op(batch, OpKind::Embed, None, &to).unwrap();
+        let prev = comicinfo::inject(&to, "<ComicInfo/>").unwrap();
+        h.finish_embed(eid, &to, prev.as_deref()).unwrap();
+        let cid = h.start_op(batch, OpKind::Cover, None, &to).unwrap();
+        let entry = cover::embed(&to, b"cover", "jpg").unwrap().unwrap();
+        h.finish_embed(cid, &to, Some(entry.as_bytes())).unwrap();
+        assert_eq!(h.batches(1).unwrap()[0].done, 1, "edits in place are not counted as files");
+
+        let report = h.undo(batch, false).unwrap();
+        assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+        let z = zip::ZipArchive::new(fs::File::open(&src).unwrap()).unwrap();
+        let names: Vec<String> = z.file_names().filter_map(|n| n.ok()).map(|n| n.to_string()).collect();
+        assert_eq!(names, ["001.jpg"]);
     }
 
     #[test]

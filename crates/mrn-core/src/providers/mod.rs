@@ -202,6 +202,34 @@ impl SeriesInfo {
     }
 }
 
+/// Cover images per volume of a manga, for embedding or sidecars.
+#[derive(Debug, Clone, Default)]
+pub struct VolumeCovers {
+    /// Volume number (normalised, `"1"`, `"7.5"`) → image URL.
+    pub volumes: BTreeMap<String, String>,
+    /// Chapter number → the volume it belongs to, for chapter files.
+    pub chapter_volumes: BTreeMap<String, String>,
+}
+
+impl VolumeCovers {
+    /// `"01"`, `"1.0"` → `"1"`; `None` for anything that isn't a number.
+    pub fn key(n: &str) -> Option<String> {
+        let v: f64 = n.trim().parse().ok()?;
+        (v.is_finite() && v >= 0.0).then(|| crate::format::template::format_number(v, 0))
+    }
+
+    /// The cover for a book numbered `volume` and/or `chapter`.
+    pub fn for_book(&self, volume: Option<f64>, chapter: Option<f64>) -> Option<&str> {
+        let fmt = |n: f64| crate::format::template::format_number(n, 0);
+        let vol = match (volume, chapter) {
+            (Some(v), _) => fmt(v),
+            (None, Some(c)) => self.chapter_volumes.get(&fmt(c))?.clone(),
+            (None, None) => return None,
+        };
+        self.volumes.get(&vol).map(String::as_str)
+    }
+}
+
 /// One comic issue.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct Issue {

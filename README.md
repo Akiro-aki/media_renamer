@@ -103,7 +103,7 @@ Useful flags for `rename`:
 | `-f PRESET\|TEMPLATE` | `jellyfin` (default), `plex`, `kodi`, `anime`, `kavita`, `komga`, or a template |
 | `-a ACTION` | `move` (default), `copy`, `hardlink`, `symlink` |
 | `--conflict` | `skip` (default), `override` (the replaced file goes to the trash), `index` (`Name (1).mkv`) |
-| `--nfo` `--artwork` `--comicinfo` | opt-in extras (see below) |
+| `--nfo` `--artwork` `--comicinfo` `--embed-cover` | opt-in extras (see below) |
 | `--offline` | no lookups; tidy names from the file name only |
 | `--clean` | remove source folders left empty |
 | `-n` / `-y` | dry run / don't ask for confirmation |
@@ -132,6 +132,12 @@ Set per-kind templates under `[format]` in the config.
 - `--artwork`: posters, fanart, season posters, comic/manga `cover.jpg`.
 - `--comicinfo`: ComicInfo.xml embedded into `.cbz` (`.cbr` can't be written), with the series'
   genres, tags, writers and artists, total count (finished series) and age rating for Kavita and Komga.
+- Volume covers (manga from MangaDex, comic issues from ComicVine):
+  - **Kavita:** `--embed-cover` puts the cover inside each `.cbz` as its first page (`!cover.jpg`),
+    unless the archive already has a cover image. Kavita only reads covers from inside the archive.
+  - **Komga:** `--artwork -f komga` saves it beside each book (`Vol 01.jpg` next to `Vol 01.cbz`),
+    which Komga prefers; the archive is not touched. Don't do this for Kavita: it would list the
+    image as an extra chapter.
 
 Series-level files (`tvshow.nfo`, `poster.jpg`, `cover.jpg`) are only written
 inside a library root (`-o` or `[output]`), never into your downloads folder.

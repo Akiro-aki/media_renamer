@@ -64,7 +64,8 @@ same `preview::Preview`; they differ only in their `Chooser`.
 | `trash.rs` | freedesktop.org trash on the file's own file system: `Trash::put`, `restore` |
 | `extras/mod.rs` | Which extra files to create where (`plan`) |
 | `extras/nfo.rs` | Kodi/Jellyfin nfo XML and a tiny XML builder/escaper |
-| `extras/comicinfo.rs` | ComicInfo.xml build, `.cbz` injection (`inject`) and its reversal (`restore`) |
+| `extras/comicinfo.rs` | ComicInfo.xml build, `.cbz` injection (`inject`) and its reversal (`restore`); `rewrite` changes one archive entry |
+| `extras/cover.rs` | Kavita's cover-image rule (`is_cover_image`), embedding a volume cover (`embed`) and removing it (`remove`) |
 | `config.rs` + `config_template.toml` | Config struct, load and env overrides, XDG dirs, starter template |
 | `pipeline.rs` | `Options`, `Chooser`, `Engine`, `Item`, `Analysis`, `ExecEvent`, `build_fields` |
 | `preview.rs` | `Preview`/`PreviewRow`/`RowState`: display-ready rows shared by CLI and GUI; `relative`, `ago` |
@@ -99,9 +100,10 @@ same `preview::Preview`; they differ only in their `Chooser`.
    - AniList anime → cross-reference TMDB: search TV by the English title, then the configured title. Accept a result scoring ≥ `CROSS_REF_THRESHOLD` (0.85), then fetch its series.
    - No TMDB key → nothing (anime keeps absolute numbering, no titles).
 6. **Formatters.** One `Formatter` per kind present: `--format` (preset name or template), then the config `[format].<kind>`, then the config preset. A bad template fails the whole run early.
-7. **Comic issue titles** (concurrent), only if `--comicinfo` is on or the comic template uses `{t}`. ComicVine allows only 200 requests per hour.
+7. **Comic issue titles** (concurrent), only if `--comicinfo` or covers are on, or the comic template uses `{t}`. ComicVine allows only 200 requests per hour.
 8. **Series details** (concurrent), only with `--comicinfo`: `Provider::book_details` once per matched book series (AniList, MangaDex, MangaBaka; empty for ComicVine), stored in `Match.book`.
-9. **Name each file.** `find_episodes` matches by season+episode, then absolute, then air date. `build_fields` fills the fields, and `render_target` produces the full target path or an error string.
+9. **Volume covers** (concurrent), only with `--embed-cover` or `--artwork -f komga`: `Engine::manga_covers` once per matched manga series, stored in `Match.covers`. The MangaDex id is the match's own, else `ext_ids`, else a MangaDex title search (`mangadex_by_title`): an entry sharing the AniList or MAL id wins, one with a different id is dropped, otherwise the best title must score ≥ `CROSS_REF_THRESHOLD`. Then `Mangadex::volume_covers` (see below).
+10. **Name each file.** `find_episodes` matches by season+episode, then absolute, then air date. `build_fields` fills the fields, and `render_target` produces the full target path or an error string.
 
 `Engine::plan` turns items with targets into `ops::Request`s and calls `build_plan`
 (which may reorder them, see below).
@@ -109,6 +111,7 @@ same `preview::Preview`; they differ only in their `Chooser`.
 `Engine::execute` begins a history batch and then, for each runnable plan item:
 - Run the main op (an `Overwrite` item passes `history.trash()` to `apply`), then `finish_op`.
 - Embed ComicInfo as a separate `OpKind::Embed` op that stores the entry it replaced.
+- Embed the book's cover (`--embed-cover`) as an `OpKind::Cover` op that stores the entry name it added. Images are downloaded once per URL per batch.
 - Run the sidecar ops.
 - Write extras, each recorded as an `OpKind::Create` op.
 - With `--clean`, prune empty source dirs up to the scan root.
@@ -289,9 +292,10 @@ Paths are stored as raw bytes, so non-UTF-8 names work.
   - `move` → move back, refusing if the original path is occupied.
   - `copy` / `hardlink` / `symlink` / `create` → delete.
   - then, if the op replaced a file, move it back from the trash and remove its `.trashinfo`.
-  - `embed` → rewrite the archive with the previous ComicInfo.xml (or none), keeping its mtime. Skipped when a
-    copy in the same batch made the archive (it is deleted next). Afterwards the earlier ops on that archive
-    are re-stat'ed, since they recorded it before the embed.
+  - `embed` → rewrite the archive with the previous ComicInfo.xml (or none), keeping its mtime. `cover` →
+    remove the entry it added. Both (`OpKind::edits_in_place`) are skipped when a copy in the same batch made
+    the archive (it is deleted next), aren't counted as files in batch totals, and afterwards the earlier ops
+    on that archive are re-stat'ed, since they recorded it before the edit.
   - Ops whose target changed (size or mtime) are skipped unless `force`.
   - Created dirs are then removed deepest-first if empty.
   - The batch becomes `undone`, or `partial` if anything was skipped. `mrn undo` picks the newest batch that isn't `undone`.
@@ -306,12 +310,33 @@ downloads images.
 |---|---|---|
 | movie | `<stem>.nfo` | `<stem>-poster.jpg`, `<stem>-fanart.jpg` |
 | tv/anime | `<stem>.nfo` (episodedetails); `tvshow.nfo` in the series dir* | `poster`, `fanart`, `seasonNN-poster` / `season-specials-poster` in the series dir* |
-| comic/manga | (ComicInfo instead) | `cover.<ext>` in the series folder* |
+| comic/manga | (ComicInfo instead) | `cover.<ext>` in the series folder*; with `-f komga`, also the book's own cover as `<stem>.<ext>` beside it |
 
 \* Only when `organized` (a library root was used). The series dir is the
 target's folder, or its parent if that folder is a season folder.
 
+**Book covers.** A book's cover is the comic issue's (`Issue.cover` from
+ComicVine) or its manga volume's. `Mangadex::volume_covers` reads
+`/cover?manga[]=ID&order[volume]=asc` (100 per page, at most 10 pages) and keeps
+one per volume: the manga's `originalLanguage` locale, else `en`, else any. For
+chapter files it also reads `/manga/{id}/aggregate` to find each chapter's
+volume. Uploaders misfile chapters (Chainsaw Man lists chapter 232 in volume 1),
+so a chapter more than 3 median absolute deviations (and more than the volume's
+chapter count) from the rest of its volume is ignored there. A chapter in no
+volume, or a volume without a cover, gets no cover. MangaDex only lists the
+chapters it hosts, so licensed series often have few.
+
+- Kavita takes a book's cover only from inside the archive, and would list a
+  `<stem>.jpg` beside it as an extra image chapter (manga libraries scan
+  images by default). `--embed-cover` adds `!cover.<ext>` as the first entry,
+  unless an image already matches Kavita's `CoverImageRegex` (`cover::is_cover_image`,
+  tested with Kavita's own cases). It is an extra page.
+- Komga prefers a `<stem>.<ext>` beside the book over its first page, so with
+  `--artwork -f komga` (the preset named by `--format`, else the config's) the
+  cover is saved there and the archive is not touched.
+
 ComicInfo is embedded only with `move` or `copy`, only into `.cbz`/`.zip`.
+So are covers.
 From the series details it adds `LocalizedSeries` (the English title when it
 differs; a Kavita extension that Komga ignores), `Count` (total volumes, or
 chapters for chapter files, only for finished series), `Writer`, `Penciller`,

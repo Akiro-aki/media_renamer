@@ -95,7 +95,8 @@ pub fn undo(batch: Option<i64>, force: bool, yes: bool) -> Result<ExitCode> {
     let count = |f: fn(&OpKind) -> bool| pending.iter().filter(|o| f(&o.kind)).count();
     let restores = count(|k| *k == OpKind::Move);
     let embeds = count(|k| *k == OpKind::Embed);
-    let removes = pending.len() - restores - embeds;
+    let covers = count(|k| *k == OpKind::Cover);
+    let removes = pending.len() - restores - embeds - covers;
     let replaced = pending.iter().filter(|o| o.backup.is_some()).count();
     let mut summary = Vec::new();
     if restores > 0 {
@@ -109,6 +110,9 @@ pub fn undo(batch: Option<i64>, force: bool, yes: bool) -> Result<ExitCode> {
     }
     if embeds > 0 {
         summary.push(format!("revert ComicInfo.xml in {embeds} archive(s)"));
+    }
+    if covers > 0 {
+        summary.push(format!("remove the cover added to {covers} archive(s)"));
     }
     println!("Undo batch #{id}: {}", summary.join(", "));
 

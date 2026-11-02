@@ -76,7 +76,22 @@ Work happens on the `providers` branch.
   - Live: Frieren (AniList), Solo Leveling (MangaBaka) and Chainsaw Man (MangaDex) were renamed with
     `--comicinfo` and their ComicInfo.xml checked. MangaDex calls Chainsaw Man completed at 232
     chapters (Part 1 only), so its Count is 232: provider data is trusted as is.
-- Phase 4: next.
+- **Phase 4: done (2026-11-02), checked against the live APIs.**
+  - Kavita and loose images: a new Manga library scans `Archive` and `Images` by default
+    (`library-settings-modal.component.ts`), so a `<stem>.jpg` beside a `.cbz` would be an extra
+    image chapter. Book sidecars stay `komga`-only.
+  - MangaDex `/cover`: `{result, data[{attributes{volume, fileName, locale}}], limit, offset, total}`;
+    some volumes have variant covers numbered `1.1`, `5.1`. `/aggregate`: `volumes` is an object
+    `{"1": {chapters: {"1": {...}}}, "none": {...}}`, or `[]` when empty. Chapters are misfiled at
+    times (Chainsaw Man 232 in volume 1); outliers are ignored (see ARCHITECTURE.md).
+  - MangaDex ids come from the match or a title search confirmed by AniList/MAL ids
+    (`Engine::mangadex_by_title`). Live: Frieren (AniList) and Solo Leveling (MangaBaka) both found
+    their MangaDex entries by AniList id.
+  - Live: `--embed-cover` put real JPEG covers into Frieren v01, Solo Leveling v01 and Chainsaw Man
+    v03; Frieren ch. 10 got none (MangaDex lists only chapters 1-2 for it). `-f komga --artwork`
+    wrote `Sousou no Frieren v02.jpg` beside the untouched archive. `mrn undo` reverted both.
+  - Not done: the GUI checkbox (Phase 5).
+- Phase 5: next.
 
 ## Decisions
 

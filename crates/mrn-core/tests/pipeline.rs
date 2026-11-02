@@ -103,7 +103,11 @@ fn engine_with(server: &MockServer, tmdb_key: bool) -> Engine {
             Mangabaka::new(http.clone(), Default::default())
                 .with_base_url(format!("{}/mangabaka", server.uri())),
         ),
-        mangadex: Arc::new(Mangadex::new(http.clone()).with_base_url(server.uri())),
+        mangadex: Arc::new(
+            Mangadex::new(http.clone())
+                .with_base_url(server.uri())
+                .with_covers_url(format!("{}/covers", server.uri())),
+        ),
         comicvine: Some(Arc::new(
             ComicVine::new(http.clone(), "key".into()).with_base_url(server.uri()),
         )),
@@ -140,8 +144,7 @@ async fn tv_movie_anime_end_to_end_with_undo() {
     opts.interactive = false;
     opts.extras = Extras {
         nfo: true,
-        artwork: false,
-        comicinfo: false,
+        ..Default::default()
     };
 
     let files = scan(std::slice::from_ref(&input), true).unwrap().files;
@@ -426,6 +429,163 @@ async fn comicinfo_gets_tags_creators_and_count_then_undo() {
     assert!(undo.skipped.is_empty(), "{:?}", undo.skipped);
     let mut z = zip::ZipArchive::new(fs::File::open(input.join("Solo Leveling v01.cbz")).unwrap()).unwrap();
     assert!(z.by_name("ComicInfo.xml").is_err(), "ComicInfo removed on undo");
+}
+
+const CSM: &str = "a77742b1-befd-49a4-bff5-1ad4e6b0ef7b";
+const CSM_V1_COVER: &str = "59ade418-3590-4d7b-91b0-24c8feaa845f.png";
+
+/// Chainsaw Man matched on AniList, found on MangaDex by title (a decoy with
+/// the same title but another AniList id comes first), with real cover and
+/// aggregate responses. The volume 1 cover image is `PNGDATA`.
+async fn mock_chainsaw_covers(server: &MockServer) {
+    Mock::given(method("POST"))
+        .and(path("/graphql"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {"Page": {"media": [{
+            "id": 105778, "idMal": 116778, "format": "MANGA", "startDate": {"year": 2018},
+            "title": {"romaji": "Chainsaw Man", "english": "Chainsaw Man"}
+        }]}}})))
+        .mount(server)
+        .await;
+    mock(server, "/manga", Some(("title", "Chainsaw Man")), json!({"data": [
+        {"id": "decoy", "attributes": {"title": {"en": "Chainsaw Man"}, "year": 2018,
+                                       "links": {"al": "999"}}, "relationships": []},
+        {"id": CSM, "attributes": {"title": {"en": "Chainsaw Man"}, "year": 2018,
+                                   "links": {"al": "105778", "mal": "116778"}}, "relationships": []}
+    ]}))
+    .await;
+    for (p, body) in [
+        (format!("/manga/{CSM}"), include_str!("fixtures/mangadex_book_details.json")),
+        ("/cover".to_string(), include_str!("fixtures/mangadex_covers.json")),
+        (format!("/manga/{CSM}/aggregate"), include_str!("fixtures/mangadex_aggregate.json")),
+    ] {
+        Mock::given(method("GET"))
+            .and(path(p))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(body, "application/json"))
+            .mount(server)
+            .await;
+    }
+}
+
+fn write_cbz(path: &Path, entries: &[&str]) {
+    use std::io::Write;
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let mut z = zip::ZipWriter::new(fs::File::create(path).unwrap());
+    for e in entries {
+        z.start_file(*e, zip::write::SimpleFileOptions::default()).unwrap();
+        z.write_all(b"img").unwrap();
+    }
+    z.finish().unwrap();
+}
+
+fn entries(path: &Path) -> Vec<String> {
+    let z = zip::ZipArchive::new(fs::File::open(path).unwrap()).unwrap();
+    z.file_names().filter_map(|n| n.ok()).map(|n| n.to_string()).collect()
+}
+
+#[tokio::test]
+async fn kavita_covers_embedded_per_volume_then_undone() {
+    let server = MockServer::start().await;
+    mock_chainsaw_covers(&server).await;
+    // Volume 1 and chapter 5 (in volume 1) share one download.
+    Mock::given(method("GET"))
+        .and(path(format!("/covers/{CSM}/{CSM_V1_COVER}")))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(b"PNGDATA".to_vec()))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let engine = engine(&server);
+    let d = tempfile::tempdir().unwrap();
+    let input = d.path().join("in");
+    let lib = d.path().join("lib");
+    write_cbz(&input.join("Chainsaw Man v01.cbz"), &["001.jpg"]);
+    write_cbz(&input.join("Chainsaw Man c005.cbz"), &["001.jpg"]);
+    write_cbz(&input.join("Chainsaw Man v02.cbz"), &["cover.jpg", "001.jpg"]);
+
+    let mut opts = Options::from_config(&engine.config);
+    opts.interactive = false;
+    opts.kind = Some(mrn_core::MediaKind::Manga);
+    opts.output = Some(lib.clone());
+    opts.format = Some("{n}/{n}[ v{vol:02}][ c{ch:03}]".into());
+    opts.extras.embed_cover = true;
+    let files = scan(std::slice::from_ref(&input), true).unwrap().files;
+    let analysis = engine.analyze(files, &opts, &mut SkipUncertain, &|_| {}).await.unwrap();
+    assert!(analysis.warnings.is_empty(), "{:?}", analysis.warnings);
+    let plan = engine.plan(&analysis, &opts);
+    let history = History::open(&d.path().join("history.db")).unwrap();
+    let mut warnings = Vec::new();
+    let report = engine
+        .execute(&analysis, &plan, &opts, &history, "test", &mut |e| {
+            if let mrn_core::pipeline::ExecEvent::Warning(w) = e {
+                warnings.push(w);
+            }
+        })
+        .await
+        .unwrap();
+    assert_eq!(report.failed, 0);
+    assert!(warnings.is_empty(), "{warnings:?}");
+
+    let dir = lib.join("Chainsaw Man");
+    for f in ["Chainsaw Man v01.cbz", "Chainsaw Man c005.cbz"] {
+        assert_eq!(entries(&dir.join(f)), ["!cover.png", "001.jpg"], "{f}");
+    }
+    let mut z = zip::ZipArchive::new(fs::File::open(dir.join("Chainsaw Man v01.cbz")).unwrap()).unwrap();
+    let mut img = Vec::new();
+    std::io::Read::read_to_end(&mut z.by_name("!cover.png").unwrap(), &mut img).unwrap();
+    assert_eq!(img, b"PNGDATA");
+    // Already had a cover by Kavita's rule: left alone.
+    assert_eq!(entries(&dir.join("Chainsaw Man v02.cbz")), ["cover.jpg", "001.jpg"]);
+    assert!(!dir.join("Chainsaw Man v01.png").exists(), "no sidecar without -f komga --artwork");
+
+    let undo = history.undo(report.batch, false).unwrap();
+    assert!(undo.skipped.is_empty(), "{:?}", undo.skipped);
+    assert_eq!(entries(&input.join("Chainsaw Man v01.cbz")), ["001.jpg"]);
+    assert_eq!(entries(&input.join("Chainsaw Man c005.cbz")), ["001.jpg"]);
+}
+
+#[tokio::test]
+async fn komga_covers_saved_beside_books_then_undone() {
+    let server = MockServer::start().await;
+    mock_chainsaw_covers(&server).await;
+    Mock::given(method("GET"))
+        .and(path(format!("/covers/{CSM}/{CSM_V1_COVER}")))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(b"PNGDATA".to_vec()))
+        .mount(&server)
+        .await;
+    let engine = engine(&server);
+    let d = tempfile::tempdir().unwrap();
+    let input = d.path().join("in");
+    let lib = d.path().join("lib");
+    write_cbz(&input.join("Chainsaw Man v01.cbz"), &["001.jpg"]);
+    write_cbz(&input.join("Chainsaw Man c005.cbz"), &["001.jpg"]);
+    let dir = lib.join("Chainsaw Man");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("Chainsaw Man c005.png"), b"mine").unwrap();
+
+    let mut opts = Options::from_config(&engine.config);
+    opts.interactive = false;
+    opts.kind = Some(mrn_core::MediaKind::Manga);
+    opts.output = Some(lib.clone());
+    opts.format = Some("komga".into());
+    opts.extras.artwork = true;
+    let files = scan(std::slice::from_ref(&input), true).unwrap().files;
+    let analysis = engine.analyze(files, &opts, &mut SkipUncertain, &|_| {}).await.unwrap();
+    assert!(analysis.warnings.is_empty(), "{:?}", analysis.warnings);
+    let plan = engine.plan(&analysis, &opts);
+    let history = History::open(&d.path().join("history.db")).unwrap();
+    let report = engine
+        .execute(&analysis, &plan, &opts, &history, "test", &mut |_| {})
+        .await
+        .unwrap();
+    assert_eq!(report.failed, 0);
+
+    assert_eq!(fs::read(dir.join("Chainsaw Man v01.png")).unwrap(), b"PNGDATA");
+    assert_eq!(fs::read(dir.join("Chainsaw Man c005.png")).unwrap(), b"mine", "existing sidecar kept");
+    assert_eq!(entries(&dir.join("Chainsaw Man v01.cbz")), ["001.jpg"], "archive untouched");
+
+    let undo = history.undo(report.batch, false).unwrap();
+    assert!(undo.skipped.is_empty(), "{:?}", undo.skipped);
+    assert!(!dir.join("Chainsaw Man v01.png").exists());
+    assert_eq!(fs::read(dir.join("Chainsaw Man c005.png")).unwrap(), b"mine");
 }
 
 /// Jikan's episode list for Frieren (MAL 52991), one page.

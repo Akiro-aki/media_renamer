@@ -1,7 +1,9 @@
 //! Optional extras written next to renamed files: Kodi/Jellyfin `.nfo`,
-//! artwork, and ComicInfo.xml inside `.cbz` archives. All off by default.
+//! artwork, and ComicInfo.xml and covers inside `.cbz` archives. All off by
+//! default.
 
 pub mod comicinfo;
+pub mod cover;
 pub mod nfo;
 
 use std::path::{Path, PathBuf};
@@ -37,6 +39,11 @@ pub struct ExtraContext<'a> {
     pub episode: Option<&'a Episode>,
     pub season: Option<u32>,
     pub episode_numbers: &'a [u32],
+    /// This book's own cover (its volume's, or the comic issue's).
+    pub book_cover: Option<&'a str>,
+    /// Save `book_cover` beside the book as `<stem>.<ext>` (Komga reads
+    /// these; Kavita would take them as an extra chapter).
+    pub book_sidecar: bool,
 }
 
 /// The folder a series lives in: the target's folder, or its parent when
@@ -124,13 +131,19 @@ pub fn plan(ctx: &ExtraContext, extras: &Extras) -> Vec<ExtraFile> {
             {
                 out.push(download(dir.join(format!("cover.{}", image_ext(url))), url));
             }
+            if extras.artwork
+                && ctx.book_sidecar
+                && let Some(url) = ctx.book_cover
+            {
+                out.push(download(beside(&format!(".{}", image_ext(url))), url));
+            }
         }
     }
     out
 }
 
 /// Extension for a downloaded image, from its URL.
-fn image_ext(url: &str) -> &'static str {
+pub(crate) fn image_ext(url: &str) -> &'static str {
     let path = url.split(['?', '#']).next().unwrap_or(url).to_ascii_lowercase();
     if path.ends_with(".png") {
         "png"
@@ -167,7 +180,7 @@ mod tests {
         let all = Extras {
             nfo: true,
             artwork: true,
-            comicinfo: false,
+            ..Default::default()
         };
         let ctx = ExtraContext {
             kind: MediaKind::Tv,
@@ -178,6 +191,8 @@ mod tests {
             episode: None,
             season: Some(1),
             episode_numbers: &[2],
+            book_cover: None,
+            book_sidecar: false,
         };
         let paths: Vec<_> = plan(&ctx, &all).into_iter().map(|e| e.path).collect();
         assert_eq!(
@@ -214,16 +229,48 @@ mod tests {
             episode: None,
             season: None,
             episode_numbers: &[],
+            book_cover: None,
+            book_sidecar: false,
         };
         let extras = Extras {
-            nfo: false,
             artwork: true,
-            comicinfo: false,
+            ..Default::default()
         };
         let paths: Vec<_> = plan(&ctx, &extras).into_iter().map(|e| e.path).collect();
         assert_eq!(
             paths,
             ["/dl/Movie (2020)-poster.jpg", "/dl/Movie (2020)-fanart.png"].map(PathBuf::from)
         );
+    }
+
+    #[test]
+    fn book_cover_sidecar_only_when_asked() {
+        let c = Candidate {
+            poster: Some("https://img/series.jpg".into()),
+            ..Default::default()
+        };
+        let ctx = ExtraContext {
+            kind: MediaKind::Manga,
+            target: Path::new("/lib/Frieren/Frieren v01.cbz"),
+            organized: true,
+            candidate: &c,
+            series: None,
+            episode: None,
+            season: None,
+            episode_numbers: &[],
+            book_cover: Some("https://uploads/covers/x/v1.png"),
+            book_sidecar: true,
+        };
+        let artwork = Extras {
+            artwork: true,
+            ..Default::default()
+        };
+        let paths: Vec<_> = plan(&ctx, &artwork).into_iter().map(|e| e.path).collect();
+        assert_eq!(paths, ["/lib/Frieren/cover.jpg", "/lib/Frieren/Frieren v01.png"].map(PathBuf::from));
+        let kavita = ExtraContext {
+            book_sidecar: false,
+            ..ctx
+        };
+        assert_eq!(plan(&kavita, &artwork).len(), 1, "no sidecar unless asked");
     }
 }

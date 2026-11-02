@@ -15,8 +15,8 @@ use crate::MediaKind;
 use crate::cache::Cache;
 use crate::config::{Config, Extras, ProviderOrder};
 use crate::detect::{detect, resolve_book_numbers};
-use crate::extras::{self, ExtraContent, ExtraContext, comicinfo};
-use crate::format::{Fields, Formatter};
+use crate::extras::{self, ExtraContent, ExtraContext, comicinfo, cover};
+use crate::format::{Fields, Formatter, presets};
 use crate::history::{History, OpKind};
 use crate::matcher::{self, Scored, normalize};
 use crate::ops::{self, Action, Conflict, FileOp, ItemStatus, PlanItem, Request};
@@ -24,6 +24,7 @@ use crate::parse::{ParsedInfo, parse_path};
 use crate::providers::http::{Http, HttpOptions};
 use crate::providers::{
     BookDetails, Candidate, Episode, ForcedId, Issue, Provider, Providers, SeriesInfo, Source,
+    VolumeCovers,
 };
 use crate::scan::MediaFile;
 
@@ -114,6 +115,8 @@ pub struct Match {
     pub series: Option<Arc<SeriesInfo>>,
     /// Tags, creators and totals for ComicInfo (books, only with `--comicinfo`).
     pub book: Option<Arc<BookDetails>>,
+    /// Volume covers (manga, only when covers are embedded or saved beside books).
+    pub covers: Option<Arc<VolumeCovers>>,
 }
 
 /// One analyzed file.
@@ -344,6 +347,7 @@ impl Engine {
 
         // 7. Comic issue titles, only when something uses them.
         let want_issues = opts.extras.comicinfo
+            || self.wants_book_covers(opts)
             || formatters
                 .get(&MediaKind::Comic)
                 .is_some_and(|f| f.uses_field("t"));
@@ -426,7 +430,49 @@ impl Engine {
             }
         }
 
-        // 9. Name every file.
+        // 9. Volume covers for manga, once per series.
+        if self.wants_book_covers(opts) {
+            let jobs: Vec<(usize, Arc<Candidate>, bool)> = groups
+                .iter()
+                .enumerate()
+                .filter_map(|(gi, g)| match &states[gi] {
+                    GroupState::Matched(m) if g.kind == MediaKind::Manga => {
+                        let chapters = g
+                            .members
+                            .iter()
+                            .any(|&i| parsed[i].1.volume.is_none() && parsed[i].1.chapter.is_some());
+                        Some((gi, m.candidate.clone(), chapters))
+                    }
+                    _ => None,
+                })
+                .collect();
+            if !jobs.is_empty() {
+                status("Fetching volume covers…");
+            }
+            let results: Vec<(usize, Result<Option<VolumeCovers>>)> =
+                futures::stream::iter(jobs.into_iter().map(|(gi, c, chapters)| async move {
+                    (gi, self.manga_covers(&c, chapters).await)
+                }))
+                .buffer_unordered(concurrency)
+                .collect()
+                .await;
+            for (gi, r) in results {
+                match r {
+                    Ok(Some(c)) => {
+                        if let GroupState::Matched(m) = &mut states[gi] {
+                            m.covers = Some(Arc::new(c));
+                        }
+                    }
+                    Ok(None) => tracing::info!("no volume covers found for '{}'", groups[gi].query),
+                    Err(e) => warnings.push(format!(
+                        "could not fetch volume covers for '{}': {e:#}",
+                        groups[gi].query
+                    )),
+                }
+            }
+        }
+
+        // 10. Name every file.
         let mut items = Vec::with_capacity(parsed.len());
         for (i, (file, info, kind)) in parsed.into_iter().enumerate() {
             let (matched, error) = match group_of[i].map(|gi| &states[gi]) {
@@ -480,6 +526,7 @@ impl Engine {
                     score: 1.0,
                     series: None,
                     book: None,
+                    covers: None,
                 }),
                 Err(e) => GroupState::Failed(format!("{e:#}")),
             });
@@ -506,6 +553,7 @@ impl Engine {
                 score: best.score,
                 series: None,
                 book: None,
+                covers: None,
             })),
             Ok(SearchResult { candidates, .. }) => Err(SearchNeedsChoice::Ask(candidates)),
             Err(e) => Ok(GroupState::Failed(format!("lookup failed: {e:#}"))),
@@ -547,6 +595,7 @@ impl Engine {
                         score: s.score,
                         series: None,
                         book: None,
+                        covers: None,
                     });
                 }
                 Choice::Pick(_) | Choice::Skip => return GroupState::Failed("skipped".into()),
@@ -789,6 +838,73 @@ impl Engine {
         Ok(None)
     }
 
+    /// The naming preset in effect: `--format` if it names one, else the config's.
+    fn preset<'a>(&'a self, opts: &'a Options) -> &'a str {
+        opts.format
+            .as_deref()
+            .filter(|f| presets::PRESETS.contains(f))
+            .unwrap_or(&self.config.general.preset)
+    }
+
+    /// Book covers go beside each book (`<stem>.<ext>`) for Komga, which reads
+    /// them. Kavita would list them as extra chapters, so only with `komga`.
+    fn book_sidecars(&self, opts: &Options) -> bool {
+        opts.extras.artwork && self.preset(opts) == "komga"
+    }
+
+    fn wants_book_covers(&self, opts: &Options) -> bool {
+        opts.extras.embed_cover || self.book_sidecars(opts)
+    }
+
+    /// MangaDex volume covers for a manga matched on any source. `None` when
+    /// it isn't on MangaDex or has no volume covers.
+    async fn manga_covers(&self, c: &Candidate, chapters: bool) -> Result<Option<VolumeCovers>> {
+        let id = match c.id_for(Source::Mangadex) {
+            Some(id) => id.to_string(),
+            None => match self.mangadex_by_title(c).await? {
+                Some(id) => id,
+                None => return Ok(None),
+            },
+        };
+        let covers = self.providers.mangadex.volume_covers(&id, chapters).await?;
+        Ok((!covers.volumes.is_empty()).then_some(covers))
+    }
+
+    /// Find a manga from another source on MangaDex. A shared AniList or MAL
+    /// id settles it either way; otherwise the title must score at least
+    /// [`CROSS_REF_THRESHOLD`].
+    async fn mangadex_by_title(&self, c: &Candidate) -> Result<Option<String>> {
+        let same = |m: &Candidate, s: Source| match (c.id_for(s), m.id_for(s)) {
+            (Some(a), Some(b)) => Some(a == b),
+            _ => None,
+        };
+        let mut queries: Vec<&str> = Vec::new();
+        for q in c.english_title.iter().chain(std::iter::once(&c.title)) {
+            if !queries.contains(&q.as_str()) {
+                queries.push(q);
+            }
+        }
+        for q in queries {
+            let found = self.providers.mangadex.search(q, c.year, MediaKind::Manga).await?;
+            if let Some(m) = found
+                .iter()
+                .find(|m| same(m, Source::Anilist) == Some(true) || same(m, Source::Mal) == Some(true))
+            {
+                return Ok(Some(m.id.clone()));
+            }
+            let unrelated = |m: &Candidate| same(m, Source::Anilist) == Some(false) || same(m, Source::Mal) == Some(false);
+            let found: Vec<Candidate> = found.into_iter().filter(|m| !unrelated(m)).collect();
+            let ranked = matcher::rank(q, c.year, found);
+            if let Some(best) = ranked.first()
+                && best.score >= CROSS_REF_THRESHOLD
+            {
+                tracing::debug!("manga '{}' → MangaDex '{}'", c.title, best.candidate.label());
+                return Ok(Some(best.candidate.id.clone()));
+            }
+        }
+        Ok(None)
+    }
+
     /// Resolve target conflicts for every named item.
     pub fn plan(&self, analysis: &Analysis, opts: &Options) -> Vec<PlanItem> {
         let requests = analysis
@@ -825,6 +941,9 @@ impl Engine {
         };
         let mut written: HashSet<PathBuf> = HashSet::new();
         let mut warned_comicinfo = false;
+        let mut warned_cover = false;
+        // Chapter files of one volume share its cover: download it once.
+        let mut images: HashMap<String, Arc<Vec<u8>>> = HashMap::new();
 
         for item in plan.iter().filter(|p| p.status.is_runnable()) {
             let meta = &analysis.items[item.tag];
@@ -845,6 +964,15 @@ impl Engine {
                             on_event(ExecEvent::Warning(w));
                         }
                         warned_comicinfo |= general;
+                    }
+                    if let Some((w, general)) = self
+                        .embed_book_cover(meta, &main.to, opts, history, batch, &mut images)
+                        .await?
+                    {
+                        if !(general && warned_cover) {
+                            on_event(ExecEvent::Warning(w));
+                        }
+                        warned_cover |= general;
                     }
                     report.done += 1;
                     on_event(ExecEvent::Done { op: main });
@@ -938,6 +1066,68 @@ impl Engine {
         }
     }
 
+    /// Embed the book's cover (Kavita) if enabled, recorded as a `cover` op so
+    /// undo can remove it. Returns a warning, and whether it is a general one
+    /// (shown once), when it is skipped or fails.
+    async fn embed_book_cover(
+        &self,
+        item: &Item,
+        target: &Path,
+        opts: &Options,
+        history: &History,
+        batch: i64,
+        images: &mut HashMap<String, Arc<Vec<u8>>>,
+    ) -> Result<Option<(String, bool)>> {
+        if !opts.extras.embed_cover || !item.kind.is_book() {
+            return Ok(None);
+        }
+        let Some(url) = book_cover(item) else { return Ok(None) };
+        if !matches!(opts.action, Action::Move | Action::Copy) {
+            let w = format!(
+                "covers are not embedded with --action {} (it would modify the original)",
+                opts.action
+            );
+            return Ok(Some((w, true)));
+        }
+        if !comicinfo::supported(target) {
+            return Ok(Some(("covers can only be embedded in .cbz files; skipped others".into(), true)));
+        }
+        match cover::has_cover(target) {
+            Ok(true) => return Ok(None),
+            Ok(false) => {}
+            Err(e) => return Ok(Some((format!("{}: {e:#}", target.display()), false))),
+        }
+        let bytes = match images.get(url) {
+            Some(b) => b.clone(),
+            None => match self.http.get_bytes(url).await {
+                Ok(b) => {
+                    let b = Arc::new(b);
+                    images.insert(url.to_string(), b.clone());
+                    b
+                }
+                Err(e) => {
+                    let w = format!("could not download the cover for {}: {e:#}", target.display());
+                    return Ok(Some((w, false)));
+                }
+            },
+        };
+        let id = history.start_op(batch, OpKind::Cover, None, target)?;
+        match cover::embed(target, &bytes, extras::image_ext(url)) {
+            Ok(Some(entry)) => {
+                history.finish_embed(id, target, Some(entry.as_bytes()))?;
+                Ok(None)
+            }
+            Ok(None) => {
+                history.fail_op(id, "the archive already has a cover")?;
+                Ok(None)
+            }
+            Err(e) => {
+                history.fail_op(id, &format!("{e:#}"))?;
+                Ok(Some((format!("{}: {e:#}", target.display()), false)))
+            }
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn write_extras(
         &self,
@@ -960,6 +1150,8 @@ impl Engine {
             episode: item.episodes.first(),
             season: item.episodes.first().map(|e| e.season).or(item.info.season),
             episode_numbers: &item.info.episodes,
+            book_cover: book_cover(item),
+            book_sidecar: self.book_sidecars(opts),
         };
         for extra in extras::plan(&ctx, &opts.extras) {
             if written.contains(&extra.path) || fs::symlink_metadata(&extra.path).is_ok() {
@@ -992,6 +1184,20 @@ enum SearchNeedsChoice {
     Warn(String, GroupState),
     /// Uncertain: ask the chooser.
     Ask(Vec<Scored>),
+}
+
+/// A book's own cover: the comic issue's, or the manga volume's.
+fn book_cover(item: &Item) -> Option<&str> {
+    match item.kind {
+        MediaKind::Comic => item.issue.as_ref()?.cover.as_deref(),
+        MediaKind::Manga => item
+            .matched
+            .as_ref()?
+            .covers
+            .as_ref()?
+            .for_book(item.info.volume, item.info.chapter),
+        _ => None,
+    }
 }
 
 fn write_text(path: &Path, text: &str) -> Result<()> {

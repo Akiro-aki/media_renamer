@@ -51,6 +51,7 @@ pub async fn run(args: RenameArgs, config_path: Option<&Path>) -> Result<ExitCod
         opts.extras.nfo |= args.nfo;
         opts.extras.artwork |= args.artwork;
         opts.extras.comicinfo |= args.comicinfo;
+        opts.extras.embed_cover |= args.embed_cover;
     }
     opts.clean = args.clean;
     opts.interactive = !args.non_interactive && ui::interactive_terminal();

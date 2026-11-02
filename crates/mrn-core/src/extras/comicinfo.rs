@@ -120,21 +120,27 @@ pub fn supported(path: &Path) -> bool {
 /// Returns the entry it replaced, so the change can be undone with
 /// [`restore`].
 pub fn inject(archive: &Path, xml: &str) -> Result<Option<Vec<u8>>> {
-    rewrite(archive, Some(xml.as_bytes()))
+    rewrite(archive, ENTRY, Some(xml.as_bytes()), false)
 }
 
 /// Undo [`inject`]: put back the `previous` ComicInfo.xml, or remove the
 /// entry if the archive had none.
 pub fn restore(archive: &Path, previous: Option<&[u8]>) -> Result<()> {
-    rewrite(archive, previous).map(drop)
+    rewrite(archive, ENTRY, previous, false).map(drop)
 }
 
-/// Replace the ComicInfo.xml entry with `content` (or drop it) and return the
-/// old entry. Other entries are copied without recompression, the archive is
-/// replaced atomically and keeps its modification time.
-fn rewrite(archive: &Path, content: Option<&[u8]>) -> Result<Option<Vec<u8>>> {
+/// Replace the entry `name` (matched case-insensitively) with `content`, or
+/// drop it, and return the old entry. With `first` the new entry is written
+/// before the others. Other entries are copied without recompression; the
+/// archive is replaced atomically and keeps its modification time.
+pub(crate) fn rewrite(
+    archive: &Path,
+    name: &str,
+    content: Option<&[u8]>,
+    first: bool,
+) -> Result<Option<Vec<u8>>> {
     if !supported(archive) {
-        bail!("ComicInfo can only be embedded in .cbz/.zip archives");
+        bail!("only .cbz/.zip archives can be changed");
     }
     let src = File::open(archive).with_context(|| format!("opening {}", archive.display()))?;
     let mtime = src.metadata().and_then(|m| m.modified()).ok();
@@ -147,9 +153,22 @@ fn rewrite(archive: &Path, content: Option<&[u8]>) -> Result<Option<Vec<u8>>> {
     let result = (|| -> Result<Option<Vec<u8>>> {
         let mut previous = None;
         let mut zout = ZipWriter::new(File::create(&tmp)?);
+        let write_new = |zout: &mut ZipWriter<File>| -> Result<()> {
+            if let Some(content) = content {
+                let options = SimpleFileOptions::default()
+                    .compression_method(CompressionMethod::Deflated)
+                    .last_modified_time(zip_now());
+                zout.start_file(name, options)?;
+                zout.write_all(content)?;
+            }
+            Ok(())
+        };
+        if first {
+            write_new(&mut zout)?;
+        }
         for i in 0..zin.len() {
-            let is_info = zin.by_index_raw(i)?.name().is_ok_and(|n| n.eq_ignore_ascii_case(ENTRY));
-            if is_info {
+            let is_entry = zin.by_index_raw(i)?.name().is_ok_and(|n| n.eq_ignore_ascii_case(name));
+            if is_entry {
                 let mut old = Vec::new();
                 zin.by_index(i)?.read_to_end(&mut old)?;
                 previous = Some(old);
@@ -157,12 +176,8 @@ fn rewrite(archive: &Path, content: Option<&[u8]>) -> Result<Option<Vec<u8>>> {
             }
             zout.raw_copy_file(zin.by_index_raw(i)?)?;
         }
-        if let Some(content) = content {
-            let options = SimpleFileOptions::default()
-                .compression_method(CompressionMethod::Deflated)
-                .last_modified_time(zip_now());
-            zout.start_file(ENTRY, options)?;
-            zout.write_all(content)?;
+        if !first {
+            write_new(&mut zout)?;
         }
         let file = zout.finish()?;
         if let Some(t) = mtime {
