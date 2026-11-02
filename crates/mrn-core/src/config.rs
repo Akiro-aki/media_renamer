@@ -102,7 +102,7 @@ impl Default for ProviderOrder {
     fn default() -> Self {
         Self {
             anime: vec![Source::Anilist, Source::Mal],
-            manga: vec![Source::Anilist, Source::Mangadex],
+            manga: vec![Source::Anilist, Source::Mangabaka, Source::Mangadex],
             anime_episodes: vec![Source::Tmdb, Source::Mal],
         }
     }

@@ -11,6 +11,7 @@ use mrn_core::providers::anilist::Anilist;
 use mrn_core::providers::comicvine::ComicVine;
 use mrn_core::providers::http::{Http, HttpOptions};
 use mrn_core::providers::mal::Mal;
+use mrn_core::providers::mangabaka::Mangabaka;
 use mrn_core::providers::mangadex::Mangadex;
 use mrn_core::providers::tmdb::Tmdb;
 use mrn_core::providers::{Providers, Source};
@@ -83,7 +84,7 @@ fn engine(server: &MockServer) -> Engine {
     engine_with(server, true)
 }
 
-/// Every provider points at `server`; Jikan lives under `/jikan`.
+/// Every provider points at `server`; Jikan lives under `/jikan`, MangaBaka under `/mangabaka`.
 fn engine_with(server: &MockServer, tmdb_key: bool) -> Engine {
     let config = Config::default();
     let http = Arc::new(Http::new(HttpOptions::default()).unwrap());
@@ -97,6 +98,10 @@ fn engine_with(server: &MockServer, tmdb_key: bool) -> Engine {
         ),
         mal: Arc::new(
             Mal::new(http.clone(), Default::default()).with_base_url(format!("{}/jikan", server.uri())),
+        ),
+        mangabaka: Arc::new(
+            Mangabaka::new(http.clone(), Default::default())
+                .with_base_url(format!("{}/mangabaka", server.uri())),
         ),
         mangadex: Arc::new(Mangadex::new(http.clone()).with_base_url(server.uri())),
         comicvine: Some(Arc::new(
@@ -309,6 +314,40 @@ async fn provider_order_and_cross_site_ids() {
     let before = graphql_calls().await;
     assert_eq!(names(&engine, &opts, &manga).await, ["Chainsaw Man [mangadex 105778 116778].cbz"]);
     assert_eq!(graphql_calls().await, before, "AniList was searched");
+}
+
+#[tokio::test]
+async fn manga_search_falls_back_to_mangabaka() {
+    let server = MockServer::start().await;
+    // AniList knows nothing; MangaBaka has the manhwa (a trimmed real response).
+    Mock::given(method("POST"))
+        .and(path("/graphql"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {"Page": {"media": []}}})))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/mangabaka/series/search"))
+        .and(query_param("q", "Solo Leveling"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_raw(include_str!("fixtures/mangabaka_search.json"), "application/json"),
+        )
+        .mount(&server)
+        .await;
+    let engine = engine(&server);
+    let d = tempfile::tempdir().unwrap();
+    let manga = d.path().join("manga");
+    touch(&manga, "Solo Leveling v01.cbz");
+    let mut opts = Options::from_config(&engine.config);
+    opts.interactive = false;
+    opts.kind = Some(mrn_core::MediaKind::Manga);
+    opts.format = Some(r"{n} v{vol:02} \[{source} {mangabakaid} {anilistid} {malid}\]".into());
+    assert_eq!(
+        names(&engine, &opts, &manga).await,
+        ["Na Honjaman Level Up v01 [mangabaka 3397 105398 121496].cbz"]
+    );
+    let reqs = server.received_requests().await.unwrap();
+    assert!(!reqs.iter().any(|r| r.url.path() == "/manga"), "MangaDex was searched");
 }
 
 /// Jikan's episode list for Frieren (MAL 52991), one page.

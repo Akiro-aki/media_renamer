@@ -1,10 +1,11 @@
-//! Metadata providers: TMDB, AniList, MAL (through Jikan), MangaDex,
-//! ComicVine. MangaBaka is a known source; its provider comes later.
+//! Metadata providers: TMDB, AniList, MAL (through Jikan), MangaBaka,
+//! MangaDex, ComicVine.
 
 pub mod anilist;
 pub mod comicvine;
 pub mod http;
 pub mod mal;
+pub mod mangabaka;
 pub mod mangadex;
 pub mod tmdb;
 
@@ -235,6 +236,7 @@ pub struct Providers {
     pub tmdb: Option<Arc<tmdb::Tmdb>>,
     pub anilist: Arc<anilist::Anilist>,
     pub mal: Arc<mal::Mal>,
+    pub mangabaka: Arc<mangabaka::Mangabaka>,
     pub mangadex: Arc<mangadex::Mangadex>,
     pub comicvine: Option<Arc<comicvine::ComicVine>>,
 }
@@ -254,6 +256,10 @@ impl Providers {
                 config.general.anime_title,
             )),
             mal: Arc::new(mal::Mal::new(http.clone(), config.general.anime_title)),
+            mangabaka: Arc::new(mangabaka::Mangabaka::new(
+                http.clone(),
+                config.general.anime_title,
+            )),
             mangadex: Arc::new(mangadex::Mangadex::new(http.clone())),
             comicvine: config
                 .api
@@ -269,9 +275,10 @@ impl Providers {
             Source::Tmdb => self.tmdb.clone().map(|p| p as Arc<dyn Provider>),
             Source::Anilist => Some(self.anilist.clone()),
             Source::Mal => Some(self.mal.clone()),
+            Source::Mangabaka => Some(self.mangabaka.clone()),
             Source::Mangadex => Some(self.mangadex.clone()),
             Source::Comicvine => self.comicvine.clone().map(|p| p as Arc<dyn Provider>),
-            Source::Mangabaka | Source::Local => None,
+            Source::Local => None,
         }
     }
 
@@ -296,7 +303,7 @@ impl Providers {
             Source::Anilist => self.anilist.clone(),
             Source::Mangadex => self.mangadex.clone(),
             Source::Mal => self.mal.clone(),
-            Source::Mangabaka => bail!("{source} is not supported yet"),
+            Source::Mangabaka => self.mangabaka.clone(),
             Source::Comicvine => match &self.comicvine {
                 Some(c) => c.clone(),
                 None => bail!(

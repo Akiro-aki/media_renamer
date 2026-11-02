@@ -50,7 +50,7 @@ concurrency = 4
 # Sources: anilist, mal, mangadex, mangabaka
 [providers]
 anime = ["anilist", "mal"]
-manga = ["anilist", "mangadex"]
+manga = ["anilist", "mangabaka", "mangadex"]
 # Where anime episode titles ({t}) come from, in order: tmdb, mal
 anime_episodes = ["tmdb", "mal"]
 

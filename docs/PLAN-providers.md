@@ -45,7 +45,26 @@ Work happens on the `providers` branch.
   - Defaults are now `anime = ["anilist", "mal"]` and `anime_episodes = ["tmdb", "mal"]`.
   - To do: live Jikan checks (Frieren S1 and S2, an anime missing from TMDB) and a real Jikan
     response saved for the tests.
-- Phase 2: next.
+- **Phase 2: done (2026-11-02), checked against the live API.**
+  - `providers/mangabaka.rs`, built from the OpenAPI spec (`https://mangabaka.org/api.json`;
+    `api.mangabaka.org/api.json` is a 404) and real responses. Trimmed real responses are test
+    fixtures in `tests/fixtures/mangabaka_*.json`.
+  - Search: `GET /v1/series/search?q=&type_not=novel&limit=10`. Lookup: `GET /v1/series/{id}`;
+    a `merged` series is followed once to `merged_with`, a `deleted` one is an error.
+  - Titles: `title` is the main (usually English) title. `romanized_title` is unreliable
+    (Frieren's is the Turkish "Frieren Cenazede"), so romaji is the primary `titles[]` entry in
+    `<original_language>-Latn` (`ja-Latn`, `ko-Latn`). English is the primary `en` title. Titles
+    starting with "unknown title (please report on Discord)" are placeholders and are skipped.
+  - `source` holds AniList, MAL, MangaUpdates, Kitsu, Anime-Planet, ANN and Shikimori ids; AniList
+    and MAL go to `ext_ids`. **MangaBaka has no MangaDex ids**, so Phase 4 can't get them from it
+    (only from a MangaDex match or a title cross-reference).
+  - `genres` are slugs (`slice_of_life`), turned into MangaBaka's labels (`Slice of Life`). Some
+    entries send `null` for lists (`genres`, `tags`). `tags` (strings) and `tags_v2` (with
+    `is_spoiler`, `weight`) exist for Phase 3.
+  - Live dry run: Solo Leveling, Sousou no Frieren and Omniscient Reader's Viewpoint all matched at
+    100% with the right AniList and MAL ids.
+  - Default manga order is now `["anilist", "mangabaka", "mangadex"]`.
+- Phase 3: next.
 
 ## Decisions
 
@@ -53,7 +72,7 @@ Work happens on the `providers` branch.
 |---|---|
 | TMDB and AniList stay as they are | Already providers; TMDB live verification is still roadmap item 1 |
 | MAL through **Jikan only** (`api.jikan.moe/v4`), not the official MAL v2 API | No key, and Jikan has episode titles; the official API has none |
-| Add **MangaBaka** (`api.mangabaka.org/v1`) for manga | No key; one series carries AniList, MAL, MangaDex, MangaUpdates ids |
+| Add **MangaBaka** (`api.mangabaka.org/v1`) for manga | No key; one series carries AniList, MAL, MangaUpdates and Kitsu ids (not MangaDex, it turned out) |
 | **Provider order is user-configurable** per kind | User asked for it. Defaults keep today's results |
 | Default manga order: AniList → MangaBaka → MangaDex | MangaBaka catches what AniList misses before the MangaDex fallback |
 | Kavita metadata goes in ComicInfo: tags, creators, Count, LocalizedSeries, AgeRating | Kavita and Komga read these; the providers already have most of the data |
@@ -184,7 +203,9 @@ Still to confirm before Phases 3 and 4 (save real responses as fixtures):
 - **MangaDex:** tags in group `theme`/`format` → Tags, `genre` → Genre. `contentRating` → AgeRating
   (safe → Everyone, suggestive → Teen, erotica → Mature 17+, pornographic → Adults Only 18+).
   Author and artist from `includes[]=author&includes[]=artist`. `lastVolume` → Count when completed.
-- **MangaBaka:** use its tags and genres if it has them (check in Phase 2).
+- **MangaBaka:** `tags` (names) and `tags_v2` (`is_spoiler`, `weight`, `name_path`); `genres`
+  slugs; `authors`/`artists` name lists; `status`, `final_volume`, `content_rating` (same values
+  as MangaDex). All are in the search and lookup responses already.
 - **ComicVine:** issue credits need one more request per issue at 200 per hour. Out of scope; a known
   limitation.
 - `comicinfo::build` (`extras/comicinfo.rs:19`) takes `Option<&BookDetails>` and writes `Tags`,
@@ -197,7 +218,8 @@ Still to confirm before Phases 3 and 4 (save real responses as fixtures):
   - Comics: `Issue.cover` from ComicVine (`providers/mod.rs:164`), already fetched and never used.
   - Manga: MangaDex `GET /cover?manga[]=ID&order[volume]=asc`, paged. Prefer the original-language
     locale, else any.
-  - AniList or MangaBaka match: the MangaDex id from `ext_ids[Mangadex]` (Phases 0 and 2). Otherwise
+  - AniList match: the MangaDex id from `ext_ids[Mangadex]` if a provider supplied it (MangaBaka
+    doesn't; checked in Phase 2). Otherwise
     cross-reference by title, as TMDB is for anime; skip quietly when nothing matches.
 - **Which volume:** the parsed `info.volume`; else the chapter's volume from
   `GET /manga/{id}/aggregate` (one request per series); else no cover.
@@ -255,4 +277,4 @@ Still to confirm before Phases 3 and 4 (save real responses as fixtures):
 
 Phase 0 → 1 → 2 → 3 (richer ComicInfo) → 4 (covers) → 5 (front ends and docs), one commit each, then
 a release. Phase 1 is the most valuable; Phase 2 can wait if time runs short. Phases 3 and 4 need
-`ext_ids` from Phase 0; Phase 4 works best after Phase 2 (MangaBaka's MangaDex ids).
+`ext_ids` from Phase 0; Phase 4 can't use MangaBaka for MangaDex ids (it has none).

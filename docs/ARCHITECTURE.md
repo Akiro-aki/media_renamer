@@ -206,15 +206,15 @@ behaviour. The test reports every mismatch at once.
 | Kind | Order | Notes |
 |------|-------|-------|
 | movie, tv | TMDB | v3 key → `api_key` query param; v4 token (`eyJ…`) → Bearer header. Retries the search without the year when the year gives no results |
-| anime | AniList | GraphQL, `sort: SEARCH_MATCH`, title by `anime_title` preference (romaji default) |
-| manga | AniList → MangaDex | MangaDex only if AniList has no confident match |
+| anime | AniList → MAL (`[providers] anime`) | AniList: GraphQL, `sort: SEARCH_MATCH`, title by `anime_title` preference (romaji default). MAL through Jikan, no key |
+| manga | AniList → MangaBaka → MangaDex (`[providers] manga`) | Each later source only if the earlier ones have no confident match. MangaBaka: `/series/search?type_not=novel`, title from the `<lang>-Latn` primary title for romaji, AniList and MAL ids from `source`, merged series followed to `merged_with`; it has no MangaDex ids |
 | comic | ComicVine | volumes via `/search/`, issues via `/issues/?filter=volume:ID,issue_number:N` |
 
 TMDB `series()` fetches `/tv/{id}` and every season concurrently. It numbers
 episodes of seasons ≥ 1 in order as `absolute`; specials have none.
 
 `http.rs`:
-- **Token bucket per host:** AniList 5 burst / 0.5 per second, MangaDex 5 / 4, ComicVine 10 / (200 per hour), TMDB 20 / 20, default 10 / 10.
+- **Token bucket per host:** AniList 5 burst / 0.5 per second, MangaDex 5 / 4, Jikan 3 / 1, MangaBaka 5 / 0.5, ComicVine 10 / (200 per hour), TMDB 20 / 20, default 10 / 10.
 - **Retries:** up to 4 attempts on 429/5xx (honouring `Retry-After`, capped at 60 s), timeouts and connect errors, with 1/2/4 s backoff between attempts (none after the last).
 - **Unreachable hosts:** if all 4 attempts fail with timeouts or connect errors, that `Http` skips the host for 5 minutes and later requests to it fail at once, so the pipeline falls through to the next provider without waiting. A 429/5xx never triggers this.
 - **Cache:** the key is the method + URL + query without secret params (`api_key`) + the POST body. TTL is `cache_ttl_hours` (72). `--refresh` skips cache reads.
