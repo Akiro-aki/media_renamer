@@ -12,11 +12,20 @@ use super::nfo::Xml;
 use crate::MediaKind;
 use crate::format::template::format_number;
 use crate::parse::ParsedInfo;
-use crate::providers::{Candidate, Issue};
+use crate::providers::{BookDetails, Candidate, Issue, Role};
 
 const ENTRY: &str = "ComicInfo.xml";
 
-pub fn build(kind: MediaKind, c: &Candidate, info: &ParsedInfo, issue: Option<&Issue>) -> String {
+/// Element order follows the ComicInfo v2.1 schema. `LocalizedSeries` is a
+/// Kavita extension (Komga ignores unknown elements); it goes after `Series`
+/// as in Kavita's own model.
+pub fn build(
+    kind: MediaKind,
+    c: &Candidate,
+    info: &ParsedInfo,
+    issue: Option<&Issue>,
+    details: Option<&BookDetails>,
+) -> String {
     let mut x = Xml::new(
         "ComicInfo",
         " xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"",
@@ -29,9 +38,38 @@ pub fn build(kind: MediaKind, c: &Candidate, info: &ParsedInfo, issue: Option<&I
         .and_then(|i| i.cover_date.as_deref())
         .map(split_date)
         .unwrap_or((None, None, None));
+    let localized = c
+        .english_title
+        .as_ref()
+        .filter(|e| !e.trim().is_empty() && !e.trim().eq_ignore_ascii_case(c.title.trim()));
+    // Count is the total of whatever the files are numbered by (Kavita marks a
+    // series complete when the highest volume or chapter reaches it).
+    let count = details.and_then(|d| match (info.volume, info.chapter) {
+        (None, Some(_)) => d.total_chapters,
+        _ => d.total_volumes,
+    });
+    let names = |role| {
+        details
+            .map(|d| list(d.names(role)))
+            .filter(|s| !s.is_empty())
+    };
+    let mut genres: Vec<&str> = Vec::new();
+    for g in c.genres.iter().chain(details.iter().flat_map(|d| &d.genres)) {
+        if !genres.iter().any(|x| x.eq_ignore_ascii_case(g)) {
+            genres.push(g);
+        }
+    }
+    let mut tags: Vec<&str> = Vec::new();
+    for t in details.iter().flat_map(|d| &d.tags) {
+        if !genres.iter().chain(&tags).any(|x| x.eq_ignore_ascii_case(t)) {
+            tags.push(t);
+        }
+    }
     x.el("Title", issue.and_then(|i| i.title.as_ref()))
         .el("Series", Some(&c.title))
+        .el("LocalizedSeries", localized)
         .el("Number", number.map(|n| format_number(n, 0)))
+        .el("Count", count.map(|n| n.to_string()))
         .el("Volume", info.volume.map(|v| format_number(v, 0)))
         .el(
             "Summary",
@@ -40,13 +78,28 @@ pub fn build(kind: MediaKind, c: &Candidate, info: &ParsedInfo, issue: Option<&I
         .el("Year", year.or(c.year.map(|y| y.to_string())))
         .el("Month", month)
         .el("Day", day)
+        .el("Writer", names(Role::Writer))
+        .el("Penciller", names(Role::Penciller))
         .el("Publisher", c.publisher.as_ref())
-        .el("Genre", (!c.genres.is_empty()).then(|| c.genres.join(", ")))
+        .el("Genre", (!genres.is_empty()).then(|| list(genres)))
+        .el("Tags", (!tags.is_empty()).then(|| list(tags)))
         .el("Web", c.url.as_ref());
     if kind == MediaKind::Manga {
         x.el("Manga", Some("YesAndRightToLeft"));
     }
+    x.el("AgeRating", details.and_then(|d| d.age_rating));
     x.finish()
+}
+
+/// Kavita and Komga split these lists on commas, so a comma inside an
+/// item would split it in two.
+fn list<'a>(items: impl IntoIterator<Item = &'a str>) -> String {
+    items
+        .into_iter()
+        .map(|s| s.replace(',', " ").split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn split_date(d: &str) -> (Option<String>, Option<String>, Option<String>) {
@@ -193,7 +246,7 @@ mod tests {
             cover_date: Some("2012-03-01".into()),
             ..Default::default()
         };
-        let xml = build(MediaKind::Comic, &c, &info, Some(&issue));
+        let xml = build(MediaKind::Comic, &c, &info, Some(&issue), None);
         assert!(xml.contains("<Number>1</Number>"));
         assert!(xml.contains("<Month>3</Month>"));
         assert!(!xml.contains("<Manga>"));
@@ -221,6 +274,65 @@ mod tests {
         drop(z);
         restore(&cbz, None).unwrap();
         assert_eq!(ZipArchive::new(File::open(&cbz).unwrap()).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn book_details_fill_tags_creators_and_count() {
+        let c = Candidate {
+            title: "Sousou no Frieren".into(),
+            english_title: Some("Frieren: Beyond Journey's End".into()),
+            genres: vec!["Adventure".into(), "Drama".into()],
+            ..Default::default()
+        };
+        let mut d = BookDetails {
+            tags: vec!["Travel".into(), "drama".into(), "Elves, Mages".into()],
+            genres: vec!["Adventure".into(), "Fantasy".into()],
+            total_volumes: Some(15),
+            total_chapters: Some(147),
+            age_rating: Some("Everyone"),
+            ..Default::default()
+        };
+        d.credit(Role::Writer, "Kanehito Yamada");
+        d.credit(Role::Penciller, "Tsukasa Abe");
+        let vol = ParsedInfo {
+            volume: Some(3.0),
+            ..Default::default()
+        };
+        let xml = build(MediaKind::Manga, &c, &vol, None, Some(&d));
+        for want in [
+            "<LocalizedSeries>Frieren: Beyond Journey&apos;s End</LocalizedSeries>",
+            "<Count>15</Count>",
+            "<Writer>Kanehito Yamada</Writer>",
+            "<Penciller>Tsukasa Abe</Penciller>",
+            "<Genre>Adventure, Drama, Fantasy</Genre>",
+            // "drama" is already a genre; the comma inside a tag is dropped.
+            "<Tags>Travel, Elves Mages</Tags>",
+            "<AgeRating>Everyone</AgeRating>",
+        ] {
+            assert!(xml.contains(want), "{want} missing in\n{xml}");
+        }
+        // Schema order: Series, Number, Count, Volume ... Writer ... Genre, Tags ... Manga ... AgeRating.
+        let at = |s: &str| xml.find(s).unwrap();
+        assert!(at("<Series>") < at("<LocalizedSeries>") && at("<Count>") < at("<Volume>"));
+        assert!(at("<Writer>") < at("<Genre>") && at("<Tags>") < at("<Manga>"));
+        assert!(at("<Manga>") < at("<AgeRating>"));
+
+        // A chapter file counts chapters.
+        let ch = ParsedInfo {
+            chapter: Some(12.0),
+            ..Default::default()
+        };
+        assert!(build(MediaKind::Manga, &c, &ch, None, Some(&d)).contains("<Count>147</Count>"));
+        // Without details nothing new appears, and an English title equal to
+        // the title isn't repeated.
+        let same = Candidate {
+            english_title: Some("sousou no frieren".into()),
+            ..c.clone()
+        };
+        let xml = build(MediaKind::Manga, &same, &vol, None, None);
+        for absent in ["LocalizedSeries", "Count", "Writer", "Tags", "AgeRating"] {
+            assert!(!xml.contains(absent), "{absent} in\n{xml}");
+        }
     }
 
     #[test]

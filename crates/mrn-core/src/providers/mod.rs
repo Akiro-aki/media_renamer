@@ -17,6 +17,7 @@ use std::sync::Arc;
 use anyhow::{Result, bail};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::MediaKind;
 use crate::config::{Config, ProviderOrder};
@@ -211,6 +212,70 @@ pub struct Issue {
     pub summary: Option<String>,
 }
 
+/// A creator role that ComicInfo.xml has an element for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum Role {
+    Writer,
+    Penciller,
+}
+
+/// Series metadata for ComicInfo.xml (tags, creators, totals), fetched once
+/// per matched book series and only when ComicInfo is written.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct BookDetails {
+    pub tags: Vec<String>,
+    pub genres: Vec<String>,
+    pub credits: Vec<(Role, String)>,
+    /// Totals, set only when the series is finished (ComicInfo `Count`).
+    pub total_volumes: Option<u32>,
+    pub total_chapters: Option<u32>,
+    /// A ComicInfo `AgeRating` value that Kavita and Komga both know.
+    pub age_rating: Option<&'static str>,
+}
+
+impl BookDetails {
+    /// Add a credit unless that person already has the role.
+    pub fn credit(&mut self, role: Role, name: &str) {
+        let name = name.trim();
+        if !name.is_empty() && !self.credits.iter().any(|(r, n)| *r == role && n == name) {
+            self.credits.push((role, name.to_string()));
+        }
+    }
+
+    pub fn names(&self, role: Role) -> Vec<&str> {
+        self.credits
+            .iter()
+            .filter(|(r, _)| *r == role)
+            .map(|(_, n)| n.as_str())
+            .collect()
+    }
+}
+
+/// At most this many tags go into ComicInfo; providers list them most
+/// relevant first.
+pub(crate) const MAX_TAGS: usize = 15;
+
+/// MangaDex/MangaBaka `content_rating` → ComicInfo `AgeRating`.
+pub(crate) fn age_rating_for(content_rating: &str) -> Option<&'static str> {
+    match content_rating {
+        "safe" => Some("Everyone"),
+        "suggestive" => Some("Teen"),
+        "erotica" => Some("Mature 17+"),
+        "pornographic" => Some("Adults Only 18+"),
+        _ => None,
+    }
+}
+
+/// A positive whole number from a JSON string or number (`"15"`, `15`, `"15.0"`).
+pub(crate) fn whole_number(v: &Value) -> Option<u32> {
+    let n = match v {
+        Value::Number(n) => n.as_f64()?,
+        Value::String(s) => s.trim().parse::<f64>().ok()?,
+        _ => return None,
+    };
+    (n >= 1.0 && n.fract() == 0.0 && n <= f64::from(u32::MAX)).then_some(n as u32)
+}
+
 #[async_trait]
 pub trait Provider: Send + Sync {
     fn source(&self) -> Source;
@@ -227,6 +292,11 @@ pub trait Provider: Send + Sync {
     /// A comic issue by number.
     async fn issue(&self, _candidate: &Candidate, _number: f64) -> Result<Option<Issue>> {
         Ok(None)
+    }
+
+    /// Tags, creators and totals for ComicInfo. Empty for providers without them.
+    async fn book_details(&self, _candidate: &Candidate) -> Result<BookDetails> {
+        Ok(BookDetails::default())
     }
 }
 

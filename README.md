@@ -130,7 +130,8 @@ Set per-kind templates under `[format]` in the config.
 
 - `--nfo`: Kodi/Jellyfin `movie.nfo`/`tvshow.nfo`/episode `.nfo`.
 - `--artwork`: posters, fanart, season posters, comic/manga `cover.jpg`.
-- `--comicinfo`: ComicInfo.xml embedded into `.cbz` (`.cbr` can't be written).
+- `--comicinfo`: ComicInfo.xml embedded into `.cbz` (`.cbr` can't be written), with the series'
+  genres, tags, writers and artists, total count (finished series) and age rating for Kavita and Komga.
 
 Series-level files (`tvshow.nfo`, `poster.jpg`, `cover.jpg`) are only written
 inside a library root (`-o` or `[output]`), never into your downloads folder.

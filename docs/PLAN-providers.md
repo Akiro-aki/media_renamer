@@ -64,7 +64,19 @@ Work happens on the `providers` branch.
   - Live dry run: Solo Leveling, Sousou no Frieren and Omniscient Reader's Viewpoint all matched at
     100% with the right AniList and MAL ids.
   - Default manga order is now `["anilist", "mangabaka", "mangadex"]`.
-- Phase 3: next.
+- **Phase 3: done (2026-11-02), checked against the live APIs.**
+  - Kavita (`Kavita.Models/Metadata/ComicInfo.cs`, `Scanner/ProcessSeries.cs`, `develop`) reads
+    Tags, Writer, Penciller, Count, LocalizedSeries and AgeRating. AgeRating must equal one of its
+    enum descriptions (`Everyone`, `Teen`, `Mature 17+`, `Adults Only 18+`, ...). Count is the
+    expected total of volumes or chapters: the series is Completed when its highest volume (or
+    chapter) equals it. People and tags are split on `,`.
+  - Komga (`ComicInfoProvider.kt`, `master`) reads Tags, Genre, Writer, Penciller, AgeRating (same
+    labels) and Count (`totalBookCount`); it ignores unknown elements, so LocalizedSeries is safe.
+  - `BookDetails` has no cover fields yet (`volume_covers`, `chapter_volumes` come with Phase 4).
+  - Live: Frieren (AniList), Solo Leveling (MangaBaka) and Chainsaw Man (MangaDex) were renamed with
+    `--comicinfo` and their ComicInfo.xml checked. MangaDex calls Chainsaw Man completed at 232
+    chapters (Part 1 only), so its Count is 232: provider data is trusted as is.
+- Phase 4: next.
 
 ## Decisions
 
@@ -194,8 +206,9 @@ Still to confirm before Phases 3 and 4 (save real responses as fixtures):
 
 - `Provider::book_details(&Candidate) -> Result<BookDetails>`, empty by default like `series()` and
   `issue()`. Called once per matched book series, only when `--comicinfo` or `--embed-cover` is on.
-- `BookDetails { tags, credits: Vec<(role, name)>, count, age_rating, volume_covers: volume → URL,
-  chapter_volumes: chapter → volume }`. `count` only when the series is finished.
+- `BookDetails { tags, genres, credits: Vec<(Role, name)>, total_volumes, total_chapters, age_rating }`
+  (as built). Totals only when the series is finished. Phase 4 adds `volume_covers` and
+  `chapter_volumes`.
 - **AniList:** a separate lookup (search results stay small) with `tags { name rank isMediaSpoiler }`,
   `staff(perPage: 8) { edges { role node { name { full } } } }`, `status volumes chapters isAdult`.
   Drop spoiler tags and tags ranked below 60. Roles: Story → Writer, Art → Penciller,

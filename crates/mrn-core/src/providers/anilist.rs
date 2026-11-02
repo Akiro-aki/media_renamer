@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::{Candidate, Http, Provider, Source, strip_html};
+use super::{BookDetails, Candidate, Http, MAX_TAGS, Provider, Role, Source, strip_html};
 use crate::MediaKind;
 use crate::config::TitlePreference;
 
@@ -371,6 +371,110 @@ impl Provider for Anilist {
             serde_json::from_value(v["data"]["Media"].clone()).context("AniList lookup")?;
         Ok(self.candidate(m, kind))
     }
+
+    async fn book_details(&self, c: &Candidate) -> Result<BookDetails> {
+        if c.kind != Some(MediaKind::Manga) {
+            return Ok(BookDetails::default());
+        }
+        let id: i64 = c.id.parse().context("AniList ids are numbers")?;
+        let q = "query ($id: Int) { Media(id: $id, type: MANGA) {
+            id status volumes chapters isAdult
+            tags { name rank isMediaSpoiler isGeneralSpoiler }
+            staff(perPage: 8, sort: [RELEVANCE, ID]) { edges { role node { name { full } } } }
+        } }";
+        let v = self.query_raw(q, json!({ "id": id })).await?;
+        let m: DetailsJson =
+            serde_json::from_value(v["data"]["Media"].clone()).context("AniList details")?;
+        Ok(m.into_details())
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DetailsJson {
+    status: Option<String>,
+    volumes: Option<u32>,
+    chapters: Option<u32>,
+    #[serde(default)]
+    is_adult: bool,
+    #[serde(default)]
+    tags: Vec<TagJson>,
+    staff: Option<StaffJson>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TagJson {
+    name: String,
+    #[serde(default)]
+    rank: u32,
+    #[serde(default)]
+    is_media_spoiler: bool,
+    #[serde(default)]
+    is_general_spoiler: bool,
+}
+
+#[derive(Deserialize)]
+struct StaffJson {
+    #[serde(default)]
+    edges: Vec<StaffEdge>,
+}
+
+#[derive(Deserialize)]
+struct StaffEdge {
+    role: Option<String>,
+    node: StaffNode,
+}
+
+#[derive(Deserialize)]
+struct StaffNode {
+    name: StaffName,
+}
+
+#[derive(Deserialize)]
+struct StaffName {
+    full: Option<String>,
+}
+
+/// AniList ranks tags 0-100 by how well they fit; below this they are noise.
+const MIN_TAG_RANK: u32 = 60;
+
+impl DetailsJson {
+    fn into_details(self) -> BookDetails {
+        let mut d = BookDetails::default();
+        let mut tags: Vec<TagJson> = self
+            .tags
+            .into_iter()
+            .filter(|t| t.rank >= MIN_TAG_RANK && !t.is_media_spoiler && !t.is_general_spoiler)
+            .collect();
+        tags.sort_by_key(|t| std::cmp::Reverse(t.rank));
+        d.tags = tags.into_iter().take(MAX_TAGS).map(|t| t.name).collect();
+        for e in self.staff.into_iter().flat_map(|s| s.edges) {
+            let (Some(role), Some(name)) = (e.role, e.node.name.full) else { continue };
+            for r in staff_roles(&role) {
+                d.credit(*r, &name);
+            }
+        }
+        if self.status.as_deref() == Some("FINISHED") {
+            d.total_volumes = self.volumes.filter(|&n| n > 0);
+            d.total_chapters = self.chapters.filter(|&n| n > 0);
+        }
+        // AniList only flags adult entries; it has no finer rating.
+        d.age_rating = self.is_adult.then_some("Adults Only 18+");
+        d
+    }
+}
+
+/// AniList staff role → ComicInfo roles. Notes in brackets ("Story (chs 1-92)",
+/// "Translator (English)") are ignored.
+fn staff_roles(role: &str) -> &'static [Role] {
+    let base = role.split('(').next().unwrap_or("").trim().to_ascii_lowercase();
+    match base.as_str() {
+        "story & art" | "original creator" => &[Role::Writer, Role::Penciller],
+        "story" | "original story" => &[Role::Writer],
+        "art" => &[Role::Penciller],
+        _ => &[],
+    }
 }
 
 #[cfg(test)]
@@ -379,6 +483,48 @@ mod tests {
     use crate::providers::http::HttpOptions;
     use wiremock::matchers::method;
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[tokio::test]
+    async fn book_details_tags_staff_and_counts() {
+        let server = MockServer::start().await;
+        // Solo Leveling (105398), a trimmed real response, 2026-11-02.
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(
+                include_str!("../../tests/fixtures/anilist_book_details.json"),
+                "application/json",
+            ))
+            .mount(&server)
+            .await;
+        let http = Arc::new(Http::new(HttpOptions::default()).unwrap());
+        let a = Anilist::new(http, TitlePreference::Romaji).with_base_url(server.uri());
+        let c = Candidate {
+            id: "105398".into(),
+            kind: Some(MediaKind::Manga),
+            ..Default::default()
+        };
+        let d = a.book_details(&c).await.unwrap();
+        assert_eq!(&d.tags[..3], ["Dungeon", "Male Protagonist", "Super Power"]);
+        assert!(d.tags.len() <= MAX_TAGS);
+        assert_eq!(d.names(Role::Writer), ["So-Ryeong Gi", "Hyeon-Gun", "Chu-Gong"]);
+        assert_eq!(d.names(Role::Penciller), ["Seong-Rak Jang", "DISCIPLES"]);
+        assert_eq!((d.total_volumes, d.total_chapters), (Some(15), Some(201)));
+        assert_eq!(d.age_rating, None);
+
+        // Anime entries have no book details and cost no request.
+        let anime = Candidate { kind: Some(MediaKind::Anime), ..c };
+        let before = server.received_requests().await.unwrap().len();
+        assert!(a.book_details(&anime).await.unwrap().tags.is_empty());
+        assert_eq!(server.received_requests().await.unwrap().len(), before);
+    }
+
+    #[test]
+    fn staff_roles_map_to_comicinfo() {
+        assert_eq!(staff_roles("Story & Art"), [Role::Writer, Role::Penciller]);
+        assert_eq!(staff_roles("Story (chs 93-201)"), [Role::Writer]);
+        assert_eq!(staff_roles("Art (chs 180-200)"), [Role::Penciller]);
+        assert!(staff_roles("Translator (English)").is_empty());
+        assert!(staff_roles("Assistant (former)").is_empty());
+    }
 
     #[tokio::test]
     async fn search_prefers_configured_title() {

@@ -11,7 +11,9 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::{Candidate, Http, Provider, Source, year_of};
+use super::{
+    BookDetails, Candidate, Http, MAX_TAGS, Provider, Role, Source, age_rating_for, whole_number, year_of,
+};
 use crate::MediaKind;
 use crate::config::TitlePreference;
 
@@ -51,6 +53,30 @@ struct SeriesJson {
     /// Ids on the sites this series was built from.
     #[serde(default)]
     source: Option<std::collections::BTreeMap<String, Value>>,
+    #[serde(default, deserialize_with = "null_as_empty")]
+    authors: Vec<String>,
+    #[serde(default, deserialize_with = "null_as_empty")]
+    artists: Vec<String>,
+    #[serde(default, deserialize_with = "null_as_empty")]
+    tags_v2: Vec<TagJson>,
+    status: Option<String>,
+    content_rating: Option<String>,
+    #[serde(default)]
+    final_volume: Value,
+    #[serde(default)]
+    total_chapters: Value,
+}
+
+#[derive(Deserialize)]
+struct TagJson {
+    name: String,
+    /// `core`, `defining`, `recurrent`, `incidental` or `unweighted`.
+    #[serde(default)]
+    weight: Option<String>,
+    #[serde(default)]
+    is_spoiler: bool,
+    #[serde(default)]
+    is_genre: bool,
 }
 
 /// MangaBaka sends `null` for some empty lists (`genres`, `tags`).
@@ -227,6 +253,53 @@ impl Mangabaka {
         }
     }
 
+    /// Tags, creators and totals from a series.
+    fn details(s: &SeriesJson) -> BookDetails {
+        let mut d = BookDetails {
+            // Series have 50-150 tags; `core` ones describe it best. Genres
+            // are repeated as tags (`is_genre`) and already in `genres`.
+            tags: s
+                .tags_v2
+                .iter()
+                .filter(|t| t.weight.as_deref() == Some("core") && !t.is_spoiler && !t.is_genre)
+                .take(MAX_TAGS)
+                .map(|t| t.name.clone())
+                .collect(),
+            genres: s.genres.iter().map(|g| genre_label(g)).collect(),
+            age_rating: s.content_rating.as_deref().and_then(age_rating_for),
+            ..Default::default()
+        };
+        for a in &s.authors {
+            d.credit(Role::Writer, a);
+        }
+        for a in &s.artists {
+            d.credit(Role::Penciller, a);
+        }
+        if s.status.as_deref() == Some("completed") {
+            d.total_volumes = whole_number(&s.final_volume);
+            d.total_chapters = whole_number(&s.total_chapters);
+        }
+        d
+    }
+
+    /// A series by id, following a merge once.
+    async fn fetch(&self, id: &str) -> Result<SeriesJson> {
+        if id.is_empty() || !id.chars().all(|c| c.is_ascii_digit()) {
+            bail!("MangaBaka ids are numbers, got '{id}'");
+        }
+        let mut s = self.get_series(id).await?;
+        // A merged series points at the one that replaced it.
+        if s.state.as_deref() == Some("merged")
+            && let Some(new_id) = s.merged_with
+        {
+            s = self.get_series(&new_id.to_string()).await?;
+        }
+        if s.state.as_deref() == Some("deleted") {
+            bail!("MangaBaka series {id} was deleted");
+        }
+        Ok(s)
+    }
+
     async fn get_series(&self, id: &str) -> Result<SeriesJson> {
         let v = self
             .http
@@ -262,20 +335,12 @@ impl Provider for Mangabaka {
     }
 
     async fn lookup(&self, id: &str, _kind: MediaKind) -> Result<Candidate> {
-        if id.is_empty() || !id.chars().all(|c| c.is_ascii_digit()) {
-            bail!("MangaBaka ids are numbers, got '{id}'");
-        }
-        let mut s = self.get_series(id).await?;
-        // A merged series points at the one that replaced it.
-        if s.state.as_deref() == Some("merged")
-            && let Some(new_id) = s.merged_with
-        {
-            s = self.get_series(&new_id.to_string()).await?;
-        }
-        if s.state.as_deref() == Some("deleted") {
-            bail!("MangaBaka series {id} was deleted");
-        }
+        let s = self.fetch(id).await?;
         Ok(self.candidate(s))
+    }
+
+    async fn book_details(&self, c: &Candidate) -> Result<BookDetails> {
+        Ok(Self::details(&self.fetch(&c.id).await?))
     }
 }
 
@@ -389,6 +454,28 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.to_string().contains("numbers"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn book_details_core_tags_creators_and_counts() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/series/1995"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(SERIES, "application/json"))
+            .mount(&server)
+            .await;
+        let p = provider(&server, TitlePreference::Romaji);
+        let c = p.lookup("1995", MediaKind::Manga).await.unwrap();
+        let d = p.book_details(&c).await.unwrap();
+        assert_eq!(&d.tags[..3], ["Travel", "Female Lead", "Calm Female Lead"]);
+        assert!(d.tags.len() <= MAX_TAGS);
+        assert!(!d.tags.iter().any(|t| t == "Fantasy"), "genre tags are left to Genre");
+        assert!(d.genres.contains(&"Slice of Life".to_string()));
+        assert_eq!(d.names(Role::Writer), ["Kanehito Yamada"]);
+        assert_eq!(d.names(Role::Penciller), ["Tsukasa Abe"]);
+        // The fixture's status is set to completed.
+        assert_eq!((d.total_volumes, d.total_chapters), (Some(15), Some(147)));
+        assert_eq!(d.age_rating, Some("Everyone"));
     }
 
     #[test]

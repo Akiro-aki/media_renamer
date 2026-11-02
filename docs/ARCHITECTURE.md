@@ -100,7 +100,8 @@ same `preview::Preview`; they differ only in their `Chooser`.
    - No TMDB key → nothing (anime keeps absolute numbering, no titles).
 6. **Formatters.** One `Formatter` per kind present: `--format` (preset name or template), then the config `[format].<kind>`, then the config preset. A bad template fails the whole run early.
 7. **Comic issue titles** (concurrent), only if `--comicinfo` is on or the comic template uses `{t}`. ComicVine allows only 200 requests per hour.
-8. **Name each file.** `find_episodes` matches by season+episode, then absolute, then air date. `build_fields` fills the fields, and `render_target` produces the full target path or an error string.
+8. **Series details** (concurrent), only with `--comicinfo`: `Provider::book_details` once per matched book series (AniList, MangaDex, MangaBaka; empty for ComicVine), stored in `Match.book`.
+9. **Name each file.** `find_episodes` matches by season+episode, then absolute, then air date. `build_fields` fills the fields, and `render_target` produces the full target path or an error string.
 
 `Engine::plan` turns items with targets into `ops::Request`s and calls `build_plan`
 (which may reorder them, see below).
@@ -311,6 +312,21 @@ downloads images.
 target's folder, or its parent if that folder is a season folder.
 
 ComicInfo is embedded only with `move` or `copy`, only into `.cbz`/`.zip`.
+From the series details it adds `LocalizedSeries` (the English title when it
+differs; a Kavita extension that Komga ignores), `Count` (total volumes, or
+chapters for chapter files, only for finished series), `Writer`, `Penciller`,
+`Tags` (at most 15, without genres or spoilers) and `AgeRating` (a label both
+Kavita and Komga know). Kavita and Komga split lists on commas, so commas
+inside a name or tag are dropped.
+
+| Source | Tags | Creators | Count | AgeRating |
+|---|---|---|---|---|
+| AniList | rank ≥ 60, no spoilers, highest first | Story → Writer, Art → Penciller, Story & Art → both (notes in brackets ignored) | `volumes`/`chapters` when `FINISHED` | Adults Only 18+ when `isAdult` |
+| MangaDex | `theme`/`format`/`content` tags (`genre` ones → Genre) | author → Writer, artist → Penciller | `lastVolume`/`lastChapter` when `completed` | from `contentRating` |
+| MangaBaka | `tags_v2` with weight `core` | `authors` → Writer, `artists` → Penciller | `final_volume`/`total_chapters` when `completed` | from `content_rating` |
+
+`contentRating`: safe → Everyone, suggestive → Teen, erotica → Mature 17+,
+pornographic → Adults Only 18+.
 Existing entries are copied raw (no recompression), any old `ComicInfo.xml` is
 replaced (and returned for the history), the archive keeps its mtime and is
 swapped in atomically.

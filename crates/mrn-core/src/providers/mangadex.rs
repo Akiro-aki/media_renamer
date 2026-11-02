@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::{Candidate, Http, Provider, Source};
+use super::{BookDetails, Candidate, Http, MAX_TAGS, Provider, Role, Source, age_rating_for, whole_number};
 use crate::MediaKind;
 
 const BASE: &str = "https://api.mangadex.org";
@@ -158,6 +158,86 @@ impl Provider for Mangadex {
         let m: MangaJson = serde_json::from_value(v["data"].clone()).context("MangaDex lookup")?;
         Ok(Self::candidate(m))
     }
+
+    async fn book_details(&self, c: &Candidate) -> Result<BookDetails> {
+        let q = [
+            ("includes[]", "author".to_string()),
+            ("includes[]", "artist".to_string()),
+        ];
+        let v = self
+            .http
+            .get_json(&format!("{}/manga/{}", self.base, c.id), &q, &[], &[])
+            .await?;
+        let m: DetailsJson =
+            serde_json::from_value(v["data"].clone()).context("MangaDex details")?;
+        Ok(m.into_details())
+    }
+}
+
+#[derive(Deserialize)]
+struct DetailsJson {
+    attributes: DetailsAttributes,
+    #[serde(default)]
+    relationships: Vec<Relationship>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DetailsAttributes {
+    status: Option<String>,
+    content_rating: Option<String>,
+    #[serde(default)]
+    last_volume: Value,
+    #[serde(default)]
+    last_chapter: Value,
+    #[serde(default)]
+    tags: Vec<TagJson>,
+}
+
+#[derive(Deserialize)]
+struct TagJson {
+    attributes: TagAttributes,
+}
+
+#[derive(Deserialize)]
+struct TagAttributes {
+    #[serde(default)]
+    name: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    group: String,
+}
+
+impl DetailsJson {
+    fn into_details(self) -> BookDetails {
+        let a = self.attributes;
+        let mut d = BookDetails::default();
+        for t in a.tags {
+            let Some(name) = t.attributes.name.get("en").or(t.attributes.name.values().next()) else {
+                continue;
+            };
+            match t.attributes.group.as_str() {
+                "genre" => d.genres.push(name.clone()),
+                _ if d.tags.len() < MAX_TAGS => d.tags.push(name.clone()),
+                _ => {}
+            }
+        }
+        for r in &self.relationships {
+            let role = match r.kind.as_str() {
+                "author" => Role::Writer,
+                "artist" => Role::Penciller,
+                _ => continue,
+            };
+            if let Some(name) = r.attributes.as_ref().and_then(|a| a.get("name")?.as_str()) {
+                d.credit(role, name);
+            }
+        }
+        if a.status.as_deref() == Some("completed") {
+            d.total_volumes = whole_number(&a.last_volume);
+            d.total_chapters = whole_number(&a.last_chapter);
+        }
+        d.age_rating = a.content_rating.as_deref().and_then(age_rating_for);
+        d
+    }
 }
 
 #[cfg(test)]
@@ -167,6 +247,35 @@ mod tests {
     use serde_json::json;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[tokio::test]
+    async fn book_details_tags_creators_and_rating() {
+        let server = MockServer::start().await;
+        // Chainsaw Man, a trimmed real response (2026-11-02).
+        Mock::given(method("GET"))
+            .and(path("/manga/a77742b1-befd-49a4-bff5-1ad4e6b0ef7b"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(
+                include_str!("../../tests/fixtures/mangadex_book_details.json"),
+                "application/json",
+            ))
+            .mount(&server)
+            .await;
+        let http = Arc::new(Http::new(HttpOptions::default()).unwrap());
+        let m = Mangadex::new(http).with_base_url(server.uri());
+        let c = Candidate {
+            id: "a77742b1-befd-49a4-bff5-1ad4e6b0ef7b".into(),
+            ..Default::default()
+        };
+        let d = m.book_details(&c).await.unwrap();
+        assert_eq!(d.genres, ["Action", "Comedy", "Horror"]);
+        assert_eq!(d.tags, ["Award Winning", "Monsters", "Demons", "Gore", "Supernatural"]);
+        // One person with both roles.
+        assert_eq!(d.names(Role::Writer), ["Fujimoto Tatsuki"]);
+        assert_eq!(d.names(Role::Penciller), ["Fujimoto Tatsuki"]);
+        // Completed, but lastVolume is "": only the chapter total is known.
+        assert_eq!((d.total_volumes, d.total_chapters), (None, Some(232)));
+        assert_eq!(d.age_rating, Some("Teen"));
+    }
 
     #[tokio::test]
     async fn search_parses_titles_and_cover() {

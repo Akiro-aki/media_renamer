@@ -27,7 +27,7 @@
    "start_date_is_estimated": false,
    "end_date_is_estimated": false
   },
-  "status": "hiatus",
+  "status": "completed",
   "content_rating": "safe",
   "type": "manga",
   "original_language": "ja",
@@ -358,6 +358,536 @@
    "shikimori": {
     "id": 126287
    }
-  }
+  },
+  "tags_v2": [
+   {
+    "name": "Cooking",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Travel",
+    "weight": "core",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Spearplay",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Male Demographic with Female Lead",
+    "weight": "recurrent",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Shounen",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Kuudere",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Kuudere Characters",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Hero",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Age Progression",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Older Female Lead",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Big Breasts",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Scars",
+    "weight": "recurrent",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Strong Character",
+    "weight": "incidental",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Female Lead",
+    "weight": "core",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Unaging Female Lead",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Calm Female Lead",
+    "weight": "core",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Clumsy Female Lead",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Expressionless Female Lead",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Kind female Lead",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Stoic Female Lead",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Elf Female Lead",
+    "weight": "incidental",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Immortal Female Lead",
+    "weight": "recurrent",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Strong Female Lead",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Asexual Character",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Calm Protagonist",
+    "weight": "core",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Non-Human Protagonist",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Adapted to Anime",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Fairy Tale",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Dungeon",
+    "weight": "recurrent",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Europe",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Snowscape",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Tragic Past",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Appearance Different from Actual Age",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Character Growth",
+    "weight": "core",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Protagonist Strong from the Start",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Character Death",
+    "weight": "defining",
+    "is_spoiler": true,
+    "is_genre": false
+   },
+   {
+    "name": "Dead Friend",
+    "weight": "core",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Death of Loved One",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Life-Changing Events",
+    "weight": "recurrent",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Subtle Romance",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Memories",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Past Plays a Big Role",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Time Manipulation",
+    "weight": "recurrent",
+    "is_spoiler": true,
+    "is_genre": false
+   },
+   {
+    "name": "Time Skip",
+    "weight": "core",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Time Skip In First Chapter/Prologue",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Time Travel",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Saving the World",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Flashbacks",
+    "weight": "core",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Time Progression",
+    "weight": "core",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Priests",
+    "weight": "incidental",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Demon King",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Apprentice",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Mages",
+    "weight": "core",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Warrior",
+    "weight": "recurrent",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Older Female Younger Male",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Heterosexual",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Master-Disciple Relationship",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "European Ambience",
+    "weight": "recurrent",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Fantasy",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": true
+   },
+   {
+    "name": "Fantasy World",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Sci-Fi",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": true
+   },
+   {
+    "name": "Supernatural",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": true
+   },
+   {
+    "name": "Elf Protagonist",
+    "weight": "recurrent",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Non-human",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Elves",
+    "weight": "core",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Demons",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Adventure",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": true
+   },
+   {
+    "name": "Comedy",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": true
+   },
+   {
+    "name": "Coming of Age",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Death",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Drama",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": true
+   },
+   {
+    "name": "Female Empowerment",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Gourmet",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Lifetime",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Immortality",
+    "weight": "recurrent",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Philosophy",
+    "weight": "core",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Religion",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Unrequited Love",
+    "weight": "defining",
+    "is_spoiler": true,
+    "is_genre": false
+   },
+   {
+    "name": "Slice of Life",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": true
+   },
+   {
+    "name": "Iyashikei",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Tragedy",
+    "weight": "defining",
+    "is_spoiler": true,
+    "is_genre": true
+   },
+   {
+    "name": "Medieval",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Award-Nominated Work",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Award Winning",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Male Demographic with Female Artist",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Hiatus",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Episodic",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Magic",
+    "weight": "core",
+    "is_spoiler": false,
+    "is_genre": false
+   }
+  ]
  }
 }

@@ -22,7 +22,9 @@ use crate::matcher::{self, Scored, normalize};
 use crate::ops::{self, Action, Conflict, FileOp, ItemStatus, PlanItem, Request};
 use crate::parse::{ParsedInfo, parse_path};
 use crate::providers::http::{Http, HttpOptions};
-use crate::providers::{Candidate, Episode, ForcedId, Issue, Provider, Providers, SeriesInfo, Source};
+use crate::providers::{
+    BookDetails, Candidate, Episode, ForcedId, Issue, Provider, Providers, SeriesInfo, Source,
+};
 use crate::scan::MediaFile;
 
 /// Minimum similarity for using a TMDB show's episode list for an AniList entry.
@@ -110,6 +112,8 @@ pub struct Match {
     pub candidate: Arc<Candidate>,
     pub score: f64,
     pub series: Option<Arc<SeriesInfo>>,
+    /// Tags, creators and totals for ComicInfo (books, only with `--comicinfo`).
+    pub book: Option<Arc<BookDetails>>,
 }
 
 /// One analyzed file.
@@ -383,7 +387,46 @@ impl Engine {
             }
         }
 
-        // 8. Name every file.
+        // 8. Series details (tags, creators, totals) for ComicInfo, once per series.
+        if opts.extras.comicinfo {
+            let jobs: Vec<(usize, Arc<Candidate>)> = groups
+                .iter()
+                .enumerate()
+                .filter_map(|(gi, g)| match &states[gi] {
+                    GroupState::Matched(m) if g.kind.is_book() => Some((gi, m.candidate.clone())),
+                    _ => None,
+                })
+                .collect();
+            if !jobs.is_empty() {
+                status("Fetching series details…");
+            }
+            let results: Vec<(usize, Result<BookDetails>)> =
+                futures::stream::iter(jobs.into_iter().map(|(gi, c)| async move {
+                    let r = match self.providers.by_source(c.source()) {
+                        Ok(p) => p.book_details(&c).await,
+                        Err(e) => Err(e),
+                    };
+                    (gi, r)
+                }))
+                .buffer_unordered(concurrency)
+                .collect()
+                .await;
+            for (gi, r) in results {
+                match r {
+                    Ok(d) => {
+                        if let GroupState::Matched(m) = &mut states[gi] {
+                            m.book = Some(Arc::new(d));
+                        }
+                    }
+                    Err(e) => warnings.push(format!(
+                        "could not fetch series details for '{}': {e:#}",
+                        groups[gi].query
+                    )),
+                }
+            }
+        }
+
+        // 9. Name every file.
         let mut items = Vec::with_capacity(parsed.len());
         for (i, (file, info, kind)) in parsed.into_iter().enumerate() {
             let (matched, error) = match group_of[i].map(|gi| &states[gi]) {
@@ -436,6 +479,7 @@ impl Engine {
                     candidate: Arc::new(c),
                     score: 1.0,
                     series: None,
+                    book: None,
                 }),
                 Err(e) => GroupState::Failed(format!("{e:#}")),
             });
@@ -461,6 +505,7 @@ impl Engine {
                 candidate: Arc::new(best.candidate),
                 score: best.score,
                 series: None,
+                book: None,
             })),
             Ok(SearchResult { candidates, .. }) => Err(SearchNeedsChoice::Ask(candidates)),
             Err(e) => Ok(GroupState::Failed(format!("lookup failed: {e:#}"))),
@@ -501,6 +546,7 @@ impl Engine {
                         candidate: Arc::new(s.candidate),
                         score: s.score,
                         series: None,
+                        book: None,
                     });
                 }
                 Choice::Pick(_) | Choice::Skip => return GroupState::Failed("skipped".into()),
@@ -872,7 +918,13 @@ impl Engine {
         if !comicinfo::supported(target) {
             return Ok(Some("ComicInfo.xml can only be embedded in .cbz files; skipped others".into()));
         }
-        let xml = comicinfo::build(item.kind, &m.candidate, &item.info, item.issue.as_ref());
+        let xml = comicinfo::build(
+            item.kind,
+            &m.candidate,
+            &item.info,
+            item.issue.as_ref(),
+            m.book.as_deref(),
+        );
         let id = history.start_op(batch, OpKind::Embed, None, target)?;
         match comicinfo::inject(target, &xml) {
             Ok(previous) => {

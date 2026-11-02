@@ -350,6 +350,84 @@ async fn manga_search_falls_back_to_mangabaka() {
     assert!(!reqs.iter().any(|r| r.url.path() == "/manga"), "MangaDex was searched");
 }
 
+#[tokio::test]
+async fn comicinfo_gets_tags_creators_and_count_then_undo() {
+    use std::io::{Read, Write};
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/graphql"))
+        .and(body_string_contains("SEARCH_MATCH"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {"Page": {"media": [{
+            "id": 105398, "idMal": 121496, "format": "MANGA", "startDate": {"year": 2018},
+            "title": {"romaji": "Na Honjaman Level Up", "english": "Solo Leveling"},
+            "genres": ["Action", "Adventure", "Fantasy"]
+        }]}}})))
+        .mount(&server)
+        .await;
+    // The details query: a trimmed real AniList response.
+    Mock::given(method("POST"))
+        .and(path("/graphql"))
+        .and(body_string_contains("isAdult"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(
+            include_str!("fixtures/anilist_book_details.json"),
+            "application/json",
+        ))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let engine = engine(&server);
+
+    let d = tempfile::tempdir().unwrap();
+    let input = d.path().join("in");
+    let lib = d.path().join("lib");
+    fs::create_dir_all(&input).unwrap();
+    for v in [1, 2] {
+        let mut z = zip::ZipWriter::new(fs::File::create(input.join(format!("Solo Leveling v{v:02}.cbz"))).unwrap());
+        z.start_file("001.jpg", zip::write::SimpleFileOptions::default()).unwrap();
+        z.write_all(b"jpeg").unwrap();
+        z.finish().unwrap();
+    }
+    let mut opts = Options::from_config(&engine.config);
+    opts.interactive = false;
+    opts.kind = Some(mrn_core::MediaKind::Manga);
+    opts.output = Some(lib.clone());
+    opts.format = Some("{n}/{n} v{vol:02}".into());
+    opts.extras.comicinfo = true;
+
+    let files = scan(std::slice::from_ref(&input), true).unwrap().files;
+    let analysis = engine.analyze(files, &opts, &mut SkipUncertain, &|_| {}).await.unwrap();
+    assert!(analysis.warnings.is_empty(), "{:?}", analysis.warnings);
+    let plan = engine.plan(&analysis, &opts);
+    let history = History::open(&d.path().join("history.db")).unwrap();
+    let report = engine
+        .execute(&analysis, &plan, &opts, &history, "test", &mut |_| {})
+        .await
+        .unwrap();
+    assert_eq!(report.failed, 0);
+
+    let cbz = lib.join("Na Honjaman Level Up/Na Honjaman Level Up v01.cbz");
+    let mut z = zip::ZipArchive::new(fs::File::open(&cbz).unwrap()).unwrap();
+    let mut xml = String::new();
+    z.by_name("ComicInfo.xml").unwrap().read_to_string(&mut xml).unwrap();
+    for want in [
+        "<Series>Na Honjaman Level Up</Series>",
+        "<LocalizedSeries>Solo Leveling</LocalizedSeries>",
+        "<Count>15</Count>",
+        "<Volume>1</Volume>",
+        "<Writer>So-Ryeong Gi, Hyeon-Gun, Chu-Gong</Writer>",
+        "<Penciller>Seong-Rak Jang, DISCIPLES</Penciller>",
+        "<Genre>Action, Adventure, Fantasy</Genre>",
+        "<Tags>Dungeon, Male Protagonist, Super Power,",
+    ] {
+        assert!(xml.contains(want), "{want} missing in\n{xml}");
+    }
+
+    let undo = history.undo(report.batch, false).unwrap();
+    assert!(undo.skipped.is_empty(), "{:?}", undo.skipped);
+    let mut z = zip::ZipArchive::new(fs::File::open(input.join("Solo Leveling v01.cbz")).unwrap()).unwrap();
+    assert!(z.by_name("ComicInfo.xml").is_err(), "ComicInfo removed on undo");
+}
+
 /// Jikan's episode list for Frieren (MAL 52991), one page.
 async fn mock_jikan_episodes(server: &MockServer) {
     let eps: Vec<_> = (1..=28)
