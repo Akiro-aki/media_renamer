@@ -144,7 +144,7 @@ cargo run -p mrn-cli -- --help
 - **Faster builds:** put the target dir on a Linux filesystem, e.g. `export CARGO_TARGET_DIR=~/.cache/cargo-target/media_renamer`.
   `/home` is small: the debug dir there grew to 14 GB and filled the disk in session 4. If a build fails with
   "No space left on device", `rm -rf ~/.cache/cargo-target/media_renamer/debug` (it rebuilds in a few minutes).
-- **Git:** `master` on https://github.com/Akiro-aki/media_renamer. Tags `v0.1.0` (CLI) and `v0.2.0` (GUI), both released with an AppImage. Build release AppImages with `packaging/appimage/build.sh --container`.
+- **Git:** `master` on https://github.com/Akiro-aki/media_renamer. Tags `v0.1.0` (CLI), `v0.2.0` (GUI) and `v0.3.0` (more providers, TheTVDB, covers), each released with an AppImage. Build release AppImages with `packaging/appimage/build.sh --container`.
 
 ## Conventions
 

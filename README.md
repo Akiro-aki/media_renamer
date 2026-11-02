@@ -34,7 +34,7 @@ One self-contained file with the CLI and the GUI. It needs glibc 2.35 or newer
 Download it from the [releases page](https://github.com/Akiro-aki/media_renamer/releases).
 
 ```sh
-install -Dm755 mrn-0.2.0-x86_64.AppImage ~/.local/bin/mrn
+install -Dm755 mrn-0.3.0-x86_64.AppImage ~/.local/bin/mrn
 mrn config init          # writes ~/.config/mrn/config.toml
 mrn gui                  # or double-click the AppImage
 ```
