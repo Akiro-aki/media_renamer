@@ -14,6 +14,7 @@ use mrn_core::providers::mal::Mal;
 use mrn_core::providers::mangabaka::Mangabaka;
 use mrn_core::providers::mangadex::Mangadex;
 use mrn_core::providers::tmdb::Tmdb;
+use mrn_core::providers::tvdb::Tvdb;
 use mrn_core::providers::{Providers, Source};
 use mrn_core::scan::scan;
 use serde_json::json;
@@ -86,6 +87,11 @@ fn engine(server: &MockServer) -> Engine {
 
 /// Every provider points at `server`; Jikan lives under `/jikan`, MangaBaka under `/mangabaka`.
 fn engine_with(server: &MockServer, tmdb_key: bool) -> Engine {
+    engine_keys(server, tmdb_key, false)
+}
+
+/// Like [`engine_with`]; TheTVDB (under `/tvdb`) only with `tvdb_key`.
+fn engine_keys(server: &MockServer, tmdb_key: bool, tvdb_key: bool) -> Engine {
     let config = Config::default();
     let http = Arc::new(Http::new(HttpOptions::default()).unwrap());
     let providers = Providers {
@@ -111,6 +117,9 @@ fn engine_with(server: &MockServer, tmdb_key: bool) -> Engine {
         comicvine: Some(Arc::new(
             ComicVine::new(http.clone(), "key".into()).with_base_url(server.uri()),
         )),
+        tvdb: tvdb_key.then(|| {
+            Arc::new(Tvdb::new(http.clone(), "key".into(), None, "en-US").with_base_url(format!("{}/tvdb", server.uri())))
+        }),
     };
     Engine::with_providers(config, providers, http)
 }
@@ -588,6 +597,60 @@ async fn komga_covers_saved_beside_books_then_undone() {
     assert_eq!(fs::read(dir.join("Chainsaw Man c005.png")).unwrap(), b"mine");
 }
 
+#[tokio::test]
+async fn tvdb_names_anime_first_and_tmdb_fills_gaps() {
+    let server = MockServer::start().await;
+    mock_tmdb(&server).await;
+    Mock::given(method("POST"))
+        .and(path("/tvdb/login"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {"token": "T"}})))
+        .mount(&server)
+        .await;
+    mock(&server, "/tvdb/search", Some(("query", "Frieren: Beyond Journey's End")), json!({"data": [
+        {"tvdb_id": "424536", "name": "Frieren: Beyond Journey's End", "year": "2023",
+         "aliases": ["Sousou no Frieren"]}
+    ]}))
+    .await;
+    // TheTVDB's seasons: season 2 is its own season. Episode 3 has no English name.
+    let ep = |s: u32, n: u32, abs: u32, name: Option<&str>| {
+        json!({"seasonNumber": s, "number": n, "absoluteNumber": abs, "name": name})
+    };
+    mock(&server, "/tvdb/series/424536/episodes/default/eng", Some(("page", "0")), json!({
+        "data": {"series": {"episodes": [
+            ep(1, 1, 1, Some("The Journey's End")), ep(1, 2, 2, Some("Second")), ep(1, 3, 3, None),
+            ep(2, 3, 31, Some("TVDB S2 3"))
+        ]}},
+        "links": {"next": null}
+    }))
+    .await;
+    let engine = engine_keys(&server, true, true);
+    let d = tempfile::tempdir().unwrap();
+    let anime = d.path().join("anime");
+    touch(&anime, "[SubsPlease] Sousou no Frieren - 01 (1080p).mkv");
+    touch(&anime, "[SubsPlease] Sousou no Frieren - 03 (1080p).mkv");
+    touch(&anime, "[SubsPlease] Sousou no Frieren - 12 (1080p).mkv");
+    touch(&anime, "Sousou no Frieren S02E03.mkv");
+    let mut opts = Options::from_config(&engine.config);
+    opts.interactive = false;
+    opts.kind = Some(mrn_core::MediaKind::Anime);
+    opts.format = Some("{n} - {s00e00}[ - {t}]".into());
+    // The default order is TheTVDB, then TMDB.
+    assert_eq!(opts.providers.anime_episodes, [Source::Tvdb, Source::Tmdb]);
+    let mut got = names(&engine, &opts, &anime).await;
+    got.sort();
+    assert_eq!(
+        got,
+        [
+            "Sousou no Frieren - S01E01 - The Journey's End.mkv",
+            // No English name on TheTVDB: TMDB's title fills it in.
+            "Sousou no Frieren - S01E03 - Ep 3.mkv",
+            // Not on TheTVDB at all: TMDB's episode.
+            "Sousou no Frieren - S01E12 - A Real Hero.mkv",
+            "Sousou no Frieren - S02E03 - TVDB S2 3.mkv",
+        ]
+    );
+}
+
 /// Jikan's episode list for Frieren (MAL 52991), one page.
 async fn mock_jikan_episodes(server: &MockServer) {
     let eps: Vec<_> = (1..=28)
@@ -615,6 +678,8 @@ async fn anime_titles_from_mal_without_tmdb_key() {
     touch(&anime, "Sousou no Frieren S02E03.mkv");
     let mut opts = Options::from_config(&engine.config);
     opts.interactive = false;
+    // MAL is opt-in: it isn't in the default order.
+    opts.providers.anime_episodes = vec![Source::Tmdb, Source::Mal];
     opts.kind = Some(mrn_core::MediaKind::Anime);
     assert_eq!(
         names(&engine, &opts, &anime).await,
@@ -663,6 +728,8 @@ async fn anime_search_falls_back_to_mal() {
     touch(&anime, "[SubsPlease] Sousou no Frieren - 03 (1080p).mkv");
     let mut opts = Options::from_config(&engine.config);
     opts.interactive = false;
+    opts.providers.anime = vec![Source::Anilist, Source::Mal];
+    opts.providers.anime_episodes = vec![Source::Tmdb, Source::Mal];
     opts.format = Some(r"{n} - {abs:02} - {t} \[{source}-{malid}\]".into());
     assert_eq!(
         names(&engine, &opts, &anime).await,
@@ -714,6 +781,7 @@ async fn later_seasons_through_the_sequel_chain() {
         let engine = engine_with(&server, tmdb_key);
         let mut opts = Options::from_config(&engine.config);
         opts.interactive = false;
+        opts.providers.anime_episodes = vec![Source::Tmdb, Source::Mal];
         opts.kind = Some(mrn_core::MediaKind::Anime);
         opts.format = Some("{n} - {s00e00}[ - {t}]".into());
         let got = names(&engine, &opts, &anime).await;

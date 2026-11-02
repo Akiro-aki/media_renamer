@@ -210,15 +210,26 @@ behaviour. The test reports every mismatch at once.
 | Kind | Order | Notes |
 |------|-------|-------|
 | movie, tv | TMDB | v3 key → `api_key` query param; v4 token (`eyJ…`) → Bearer header. Retries the search without the year when the year gives no results |
-| anime | AniList → MAL (`[providers] anime`) | AniList: GraphQL, `sort: SEARCH_MATCH`, title by `anime_title` preference (romaji default). MAL through Jikan, no key |
+| anime | AniList (`[providers] anime`; `mal` can be added); episode titles TheTVDB → TMDB (`[providers] anime_episodes`) | AniList: GraphQL, `sort: SEARCH_MATCH`, title by `anime_title` preference (romaji default). MAL through Jikan, no key, not in the defaults since 2026-11-02 (Jikan was down for days) |
 | manga | AniList → MangaBaka → MangaDex (`[providers] manga`) | Each later source only if the earlier ones have no confident match. MangaBaka: `/series/search?type_not=novel`, title from the `<lang>-Latn` primary title for romaji, AniList and MAL ids from `source`, merged series followed to `merged_with`; it has no MangaDex ids |
 | comic | ComicVine | volumes via `/search/`, issues via `/issues/?filter=volume:ID,issue_number:N` |
+
+TheTVDB (`providers/tvdb.rs`, the user's own key and optional PIN) is only an
+anime episode source, never searched for a match. `POST /login` gives a bearer
+token, fetched once per run and sent as a header (not part of cache keys); the
+login is never cached. `Engine::tvdb_series_by_title` searches
+`/search?type=series` by the English, then romaji title (score ≥
+`CROSS_REF_THRESHOLD`), then `Tvdb::series` pages
+`/series/{id}/episodes/default/{lang}` (`lang` from `general.language`, `en` →
+`eng`). Episodes keep TheTVDB's seasons and `absoluteNumber`. An episode with no
+name in that language keeps `title: None`, and `merge_series` fills it from the
+next source. Built from TheTVDB's OpenAPI spec; not yet run against the live API.
 
 TMDB `series()` fetches `/tv/{id}` and every season concurrently. It numbers
 episodes of seasons ≥ 1 in order as `absolute`; specials have none.
 
 `http.rs`:
-- **Token bucket per host:** AniList 5 burst / 0.5 per second, MangaDex 5 / 4, Jikan 3 / 1, MangaBaka 5 / 0.5, ComicVine 10 / (200 per hour), TMDB 20 / 20, default 10 / 10.
+- **Token bucket per host:** AniList 5 burst / 0.5 per second, MangaDex 5 / 4, Jikan 3 / 1, MangaBaka 5 / 0.5, TheTVDB 5 / 5, ComicVine 10 / (200 per hour), TMDB 20 / 20, default 10 / 10.
 - **Retries:** up to 4 attempts on 429/5xx (honouring `Retry-After`, capped at 60 s), timeouts and connect errors, with 1/2/4 s backoff between attempts (none after the last).
 - **Unreachable hosts:** if all 4 attempts fail with timeouts or connect errors, that `Http` skips the host for 5 minutes and later requests to it fail at once, so the pipeline falls through to the next provider without waiting. A 429/5xx never triggers this.
 - **Cache:** the key is the method + URL + query without secret params (`api_key`) + the POST body. TTL is `cache_ttl_hours` (72). `--refresh` skips cache reads.
@@ -370,9 +381,9 @@ fails and the existing file stays.
 
 | Suite | What |
 |---|---|
-| unit tests (69, plus 1 ignored live AniList test) in `mrn-core/src/**` | template, sanitize, presets, matcher, ops (incl. chain renames, replace via trash), history (incl. trash restore, ComicInfo and cover revert, migration), trash, cache, http (wiremock, incl. unreachable-host skip), each provider (wiremock, several on trimmed real responses in `tests/fixtures/`), extras (incl. Komga sidecars), nfo, comicinfo, cover (Kavita's cover-name cases), scan, config template |
+| unit tests (74, plus 1 ignored live AniList test) in `mrn-core/src/**` | template, sanitize, presets, matcher, ops (incl. chain renames, replace via trash), history (incl. trash restore, ComicInfo and cover revert, migration), trash, cache, http (wiremock, incl. unreachable-host skip), each provider (wiremock, several on trimmed real responses in `tests/fixtures/`), extras (incl. Komga sidecars), nfo, comicinfo, cover (Kavita's cover-name cases), scan, config template |
 | `mrn-core/tests/parser_corpus.rs` | 76 filename cases from `fixtures/filenames.toml` |
-| `mrn-core/tests/pipeline.rs` (12) | full TV + movie + anime (AniList→TMDB cross-ref) flow with nfo, execute, undo; uncertain match fail/ask/search; `--id` and `--offline`; provider order and cross-site ids; MAL fallbacks and episode titles without a TMDB key; later seasons via the sequel chain; manga falling back to MangaBaka; ComicInfo details then undo; Kavita embedded covers and Komga sidecars then undo |
+| `mrn-core/tests/pipeline.rs` (13) | full TV + movie + anime (AniList→TMDB cross-ref) flow with nfo, execute, undo; uncertain match fail/ask/search; `--id` and `--offline`; provider order and cross-site ids; MAL fallbacks and episode titles without a TMDB key; later seasons via the sequel chain; manga falling back to MangaBaka; ComicInfo details then undo; Kavita embedded covers and Komga sidecars then undo; TheTVDB first for anime episode titles with TMDB filling gaps |
 | `mrn-cli/tests/cli.rs` (7) | real binary in isolated XDG dirs: rename/history/undo, `--conflict override` → trash → undo, `--yes` needed without a TTY, missing TMDB key message, config init/show masking, info, bad template, completions/man |
 | `mrn-gui` `worker::tests` (1) | the GUI's job thread headless: offline preview → apply → undo, and cancel after preview leaves files alone |
 | `mrn-gui` `snapshots` (ignored) | renders every screen with sample data to PNG (`MRN_GUI_SNAPSHOTS=dir cargo test -p mrn-gui -- --ignored`) |

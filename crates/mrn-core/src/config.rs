@@ -28,6 +28,10 @@ pub struct ApiKeys {
     pub tmdb: Option<String>,
     /// ComicVine API key. Env: `COMICVINE_API_KEY`.
     pub comicvine: Option<String>,
+    /// TheTVDB v4 API key (anime episode titles). Env: `TVDB_API_KEY`.
+    pub tvdb: Option<String>,
+    /// TheTVDB subscriber PIN, for keys that need one. Env: `TVDB_PIN`.
+    pub tvdb_pin: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,9 +107,9 @@ pub struct ProviderOrder {
 impl Default for ProviderOrder {
     fn default() -> Self {
         Self {
-            anime: vec![Source::Anilist, Source::Mal],
+            anime: vec![Source::Anilist],
             manga: vec![Source::Anilist, Source::Mangabaka, Source::Mangadex],
-            anime_episodes: vec![Source::Tmdb, Source::Mal],
+            anime_episodes: vec![Source::Tvdb, Source::Tmdb],
         }
     }
 }
@@ -153,6 +157,7 @@ impl OrderList {
                     Source::Mangadex,
                     Source::Mangabaka,
                     Source::Comicvine,
+                    Source::Tvdb,
                 ]
                 .into_iter()
                 .filter(|s| self.allows(*s))
@@ -327,9 +332,21 @@ impl Config {
         if let Some(v) = env("COMICVINE_API_KEY") {
             self.api.comicvine = Some(v);
         }
+        if let Some(v) = env("TVDB_API_KEY") {
+            self.api.tvdb = Some(v);
+        }
+        if let Some(v) = env("TVDB_PIN") {
+            self.api.tvdb_pin = Some(v);
+        }
         // Treat empty strings in the file as unset.
-        self.api.tmdb = self.api.tmdb.take().filter(|v| !v.trim().is_empty());
-        self.api.comicvine = self.api.comicvine.take().filter(|v| !v.trim().is_empty());
+        for key in [
+            &mut self.api.tmdb,
+            &mut self.api.comicvine,
+            &mut self.api.tvdb,
+            &mut self.api.tvdb_pin,
+        ] {
+            *key = key.take().filter(|v| !v.trim().is_empty());
+        }
     }
 
     fn expand_paths(&mut self) {
@@ -453,7 +470,7 @@ mod tests {
             ("anime = [\"comicvine\"]", "'comicvine' can't be used here (use anilist, mal)"),
             ("manga = [\"anilist\", \"anilist\"]", "listed twice"),
             ("manga = []", "providers.manga is empty"),
-            ("anime_episodes = [\"anilist\"]", "use tmdb, mal"),
+            ("anime_episodes = [\"anilist\"]", "use tmdb, mal, tvdb"),
             ("movie = [\"tmdb\"]", "unknown field"),
         ] {
             let err = load(&format!("[providers]\n{text}\n")).unwrap_err();

@@ -3,10 +3,15 @@
 
 [api]
 # Free key from https://www.themoviedb.org/settings/api (v3 key or v4 read token).
-# Needed for movies and TV, and for anime episode titles. Env: TMDB_API_KEY
+# Needed for movies and TV; anime episode titles need it or a TheTVDB key. Env: TMDB_API_KEY
 tmdb = ""
 # Free key from https://comicvine.gamespot.com/api/ (western comics). Env: COMICVINE_API_KEY
 comicvine = ""
+# TheTVDB v4 key from https://thetvdb.com/dashboard/account/apikey (anime episode
+# titles, numbered in TheTVDB's seasons). Some keys also need your subscriber
+# PIN. Env: TVDB_API_KEY, TVDB_PIN
+tvdb = ""
+tvdb_pin = ""
 
 [general]
 language = "en-US"
@@ -49,10 +54,13 @@ concurrency = 4
 # confident match wins. Movies and TV always use TMDB, comics ComicVine.
 # Sources: anilist, mal, mangadex, mangabaka
 [providers]
-anime = ["anilist", "mal"]
+anime = ["anilist"]
 manga = ["anilist", "mangabaka", "mangadex"]
-# Where anime episode titles ({t}) come from, in order: tmdb, mal
-anime_episodes = ["tmdb", "mal"]
+# Where anime episode titles ({t}) come from, in order: tvdb, tmdb, mal.
+# Each fills what the ones before it lack; keyed sources without a key are
+# skipped. mal (MyAnimeList through the unofficial Jikan API) is optional: it
+# names episodes without any key and finds later seasons.
+anime_episodes = ["tvdb", "tmdb"]
 
 # Extras are off by default.
 [extras]

@@ -101,6 +101,14 @@ impl Http {
         .await
     }
 
+    /// POST a JSON body without caching it or its response (logins: the body
+    /// holds a key). Errors name only the host.
+    pub async fn post_json_uncached(&self, url: &str, body: &Value) -> Result<Value> {
+        let resp = self.send(url, || self.client.post(url).json(body)).await?;
+        let text = resp.text().await.map_err(|e| e.without_url())?;
+        serde_json::from_str(&text).with_context(|| format!("invalid JSON from {}", host_of(url)))
+    }
+
     /// Fetch a file (an image) into memory. Not cached.
     pub async fn get_bytes(&self, url: &str) -> Result<Vec<u8>> {
         let resp = self.send(url, || self.client.get(url)).await?;
@@ -225,6 +233,7 @@ fn limits_for(host: &str) -> (f64, f64) {
         "api.themoviedb.org" => (20.0, 20.0),
         "api.jikan.moe" => (3.0, 1.0),               // about 3/s and 60/min
         "api.mangabaka.org" => (5.0, 0.5),           // search: 30/min
+        "api4.thetvdb.com" => (5.0, 5.0),            // no published limit
         _ => (10.0, 10.0),
     }
 }

@@ -13,6 +13,8 @@ use crate::worker::blocking;
 pub enum Msg {
     Tmdb(String),
     ComicVine(String),
+    Tvdb(String),
+    TvdbPin(String),
     Show(bool),
     Save,
     Saved(Result<(), String>),
@@ -24,6 +26,8 @@ pub struct State {
     path: Option<PathBuf>,
     tmdb: String,
     comicvine: String,
+    tvdb: String,
+    tvdb_pin: String,
     show: bool,
     /// Search order from the config file, shown read-only.
     providers: Option<ProviderOrder>,
@@ -36,6 +40,8 @@ impl State {
             path: None,
             tmdb: String::new(),
             comicvine: String::new(),
+            tvdb: String::new(),
+            tvdb_pin: String::new(),
             show: false,
             providers: None,
             message: None,
@@ -51,6 +57,8 @@ impl State {
             Ok(c) => {
                 self.tmdb = c.api.tmdb.unwrap_or_default();
                 self.comicvine = c.api.comicvine.unwrap_or_default();
+                self.tvdb = c.api.tvdb.unwrap_or_default();
+                self.tvdb_pin = c.api.tvdb_pin.unwrap_or_default();
                 self.providers = Some(c.providers);
             }
             Err(e) => self.message = Some(Err(format!("{e:#}"))),
@@ -61,6 +69,8 @@ impl State {
         match msg {
             Msg::Tmdb(s) => self.tmdb = s,
             Msg::ComicVine(s) => self.comicvine = s,
+            Msg::Tvdb(s) => self.tvdb = s,
+            Msg::TvdbPin(s) => self.tvdb_pin = s,
             Msg::Show(on) => self.show = on,
             Msg::Save => {
                 let Some(path) = self.path.clone() else {
@@ -68,9 +78,11 @@ impl State {
                     return Task::none();
                 };
                 let (tmdb, cv) = (self.tmdb.clone(), self.comicvine.clone());
+                let (tvdb, pin) = (self.tvdb.clone(), self.tvdb_pin.clone());
                 return Task::perform(
                     blocking(move || {
-                        save_api_keys(&path, &[("tmdb", &tmdb), ("comicvine", &cv)]).map_err(|e| format!("{e:#}"))
+                        let keys = [("tmdb", &tmdb), ("comicvine", &cv), ("tvdb", &tvdb), ("tvdb_pin", &pin)];
+                        save_api_keys(&path, &keys.map(|(k, v)| (k, v.as_str()))).map_err(|e| format!("{e:#}"))
                     }),
                     Msg::Saved,
                 );
@@ -98,7 +110,7 @@ impl State {
         let mut keys = Column::new().spacing(10).push(text("API keys").size(18)).push(
             row![
                 label("TMDB"),
-                text_input("Needed for movies and TV; optional for anime episode titles", &self.tmdb)
+                text_input("Needed for movies and TV; anime episode titles need it or TheTVDB", &self.tmdb)
                     .on_input(Msg::Tmdb)
                     .secure(!self.show)
                     .width(Fill),
@@ -106,10 +118,7 @@ impl State {
             .spacing(8)
             .align_y(Center),
         );
-        keys = keys.push(dim(
-            "Free key: themoviedb.org → Settings → API. A v3 key or a v4 read token both work. \
-             Without one, anime episode titles come from MyAnimeList.",
-        ));
+        keys = keys.push(dim("Free key: themoviedb.org → Settings → API. A v3 key or a v4 read token both work."));
         if std::env::var_os("TMDB_API_KEY").is_some() {
             keys = keys.push(text("TMDB_API_KEY is set in the environment and overrides this value.").size(13).style(warn));
         }
@@ -128,6 +137,32 @@ impl State {
         if std::env::var_os("COMICVINE_API_KEY").is_some() {
             keys = keys.push(
                 text("COMICVINE_API_KEY is set in the environment and overrides this value.")
+                    .size(13)
+                    .style(warn),
+            );
+        }
+        keys = keys.push(
+            row![
+                label("TheTVDB"),
+                text_input("Optional, anime episode titles in TheTVDB's seasons", &self.tvdb)
+                    .on_input(Msg::Tvdb)
+                    .secure(!self.show)
+                    .width(Fill),
+                text_input("PIN", &self.tvdb_pin)
+                    .on_input(Msg::TvdbPin)
+                    .secure(!self.show)
+                    .width(120),
+            ]
+            .spacing(8)
+            .align_y(Center),
+        );
+        keys = keys.push(dim(
+            "Key: thetvdb.com → Dashboard → API keys. The PIN is only for keys that ask for a subscriber PIN. \
+             Used first for anime episode titles; TMDB fills the gaps.",
+        ));
+        if std::env::var_os("TVDB_API_KEY").is_some() {
+            keys = keys.push(
+                text("TVDB_API_KEY is set in the environment and overrides this value.")
                     .size(13)
                     .style(warn),
             );

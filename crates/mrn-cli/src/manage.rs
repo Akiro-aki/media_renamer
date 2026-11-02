@@ -187,6 +187,8 @@ pub fn config_show(path: Option<&Path>) -> Result<ExitCode> {
     };
     mask(&mut config.api.tmdb);
     mask(&mut config.api.comicvine);
+    mask(&mut config.api.tvdb);
+    mask(&mut config.api.tvdb_pin);
     println!("# {}", config_file(path)?.display());
     print!("{}", toml::to_string_pretty(&config)?);
     Ok(ExitCode::SUCCESS)

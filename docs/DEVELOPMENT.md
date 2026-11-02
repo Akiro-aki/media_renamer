@@ -85,7 +85,7 @@ Plan and per-phase notes: [PLAN-providers.md](PLAN-providers.md). One commit per
 
 ### Verified
 
-- `cargo test --workspace` passes: 69 core unit tests (plus 1 ignored live AniList test), the corpus (76 cases), 12 pipeline integration tests, 7 CLI tests and 1 GUI worker test (plus an ignored GUI snapshot test).
+- `cargo test --workspace` passes: 74 core unit tests (plus 1 ignored live AniList test), the corpus (76 cases), 13 pipeline integration tests, 7 CLI tests and 1 GUI worker test (plus an ignored GUI snapshot test).
 - **Override → trash → undo on NTFS** (2026-11-01): debug binary, library on the fuseblk `/mnt/shared` mount.
   The replaced file went to `/mnt/shared/.Trash-1000` with a mount-relative `Path=`; undo restored both files and
   removed the trash entry. The home-trash path is covered by a CLI test.
@@ -120,6 +120,9 @@ Plan and per-phase notes: [PLAN-providers.md](PLAN-providers.md). One commit per
    connections on 2026-11-02 while other hosts worked); only wiremock tests built from Jikan's
    OpenAPI spec cover it.
 8. **A real Kavita and Komga scan** showing the new ComicInfo fields and the covers.
+9. **TheTVDB against the real API** (needs a key). Built from its OpenAPI spec (4.7.10): the
+   episodes response is read from `data.series.episodes` or `data.episodes`: the spec's schema for
+   that endpoint lists only `series`, which may not match what the API really sends.
 
 ## Resuming work
 
@@ -180,7 +183,8 @@ cargo run -p mrn-cli -- --help
 2. Verify ComicVine live (key). Run `packaging/appimage/build.sh --container` and try the result on an older distro.
 3. Grow the corpus toward 150+ using real names from your library.
 4. Write a PKGBUILD (Arch/CachyOS).
-5. Verify Jikan live (Frieren S1 and S2, an anime missing from TMDB) and save a real response as a fixture.
+5. Verify TheTVDB live with a key (Frieren S1/S2, an anime with no English episode names) and save
+   a real response as a fixture. Verify Jikan live too, once it is back up.
 6. Scan a test library in Kavita and in Komga: tags, creators, Count, age rating, embedded covers and sidecars.
 
 **Then:**
@@ -207,6 +211,8 @@ cargo run -p mrn-cli -- --help
 | Rust, cargo workspace (`mrn-core` + `mrn-cli`) | User choice; a single binary; the core is reusable for a GUI |
 | Hand-written regex parser and corpus, not a guessit port | No mature Rust guessit; the corpus keeps the behaviour pinned |
 | TMDB for TV (not TheTVDB) | TheTVDB v4 needs a paid key; TMDB is free and also covers movies |
+| TheTVDB for anime episode titles, first when a key is set (2026-11-02) | User asked; its anime seasons are what media servers use. Each user brings their own key (and PIN if needed), like TMDB |
+| MAL out of the default order (2026-11-02) | Jikan was down for days; still available via `[providers]` |
 | AniList for anime identity, TMDB for episode titles | AniList matches romaji fansub names best but has no episode titles |
 | MangaDex as manga fallback, ComicVine for comics | Free; ComicVine is the standard for western comics |
 | Own template language instead of Groovy | Simple, safe, validated at parse time; optional sections cover most needs |

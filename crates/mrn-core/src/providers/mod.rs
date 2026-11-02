@@ -1,5 +1,5 @@
 //! Metadata providers: TMDB, AniList, MAL (through Jikan), MangaBaka,
-//! MangaDex, ComicVine.
+//! MangaDex, ComicVine, and TheTVDB for anime episode titles.
 
 pub mod anilist;
 pub mod comicvine;
@@ -8,6 +8,7 @@ pub mod mal;
 pub mod mangabaka;
 pub mod mangadex;
 pub mod tmdb;
+pub mod tvdb;
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -35,6 +36,9 @@ pub enum Source {
     Mangabaka,
     #[serde(alias = "cv")]
     Comicvine,
+    /// TheTVDB: anime episode titles only, never searched for a match.
+    #[serde(alias = "thetvdb")]
+    Tvdb,
     /// No lookup: names come from the parsed filename (`--offline`).
     Local,
 }
@@ -48,6 +52,7 @@ impl Source {
             Source::Mangadex => "mangadex",
             Source::Mangabaka => "mangabaka",
             Source::Comicvine => "comicvine",
+            Source::Tvdb => "tvdb",
             Source::Local => "local",
         }
     }
@@ -60,13 +65,13 @@ impl Source {
             Source::Anilist | Source::Mal => matches!(kind, Anime | Manga),
             Source::Mangadex | Source::Mangabaka => kind == Manga,
             Source::Comicvine => kind == Comic,
-            Source::Local => false,
+            Source::Tvdb | Source::Local => false,
         }
     }
 
     /// Whether this source can supply anime episode titles.
     pub fn lists_anime_episodes(self) -> bool {
-        matches!(self, Source::Tmdb | Source::Mal)
+        matches!(self, Source::Tvdb | Source::Tmdb | Source::Mal)
     }
 }
 
@@ -86,8 +91,9 @@ impl FromStr for Source {
             "mangadex" => Ok(Source::Mangadex),
             "mangabaka" | "mb" => Ok(Source::Mangabaka),
             "comicvine" | "cv" => Ok(Source::Comicvine),
+            "tvdb" | "thetvdb" => Ok(Source::Tvdb),
             o => Err(format!(
-                "unknown source '{o}' (tmdb, anilist, mal, mangadex, mangabaka, comicvine)"
+                "unknown source '{o}' (tmdb, anilist, mal, mangadex, mangabaka, comicvine, tvdb)"
             )),
         }
     }
@@ -337,6 +343,8 @@ pub struct Providers {
     pub mangabaka: Arc<mangabaka::Mangabaka>,
     pub mangadex: Arc<mangadex::Mangadex>,
     pub comicvine: Option<Arc<comicvine::ComicVine>>,
+    /// Anime episode titles only (not a search source).
+    pub tvdb: Option<Arc<tvdb::Tvdb>>,
 }
 
 impl Providers {
@@ -364,6 +372,14 @@ impl Providers {
                 .comicvine
                 .as_ref()
                 .map(|key| Arc::new(comicvine::ComicVine::new(http.clone(), key.clone()))),
+            tvdb: config.api.tvdb.as_ref().map(|key| {
+                Arc::new(tvdb::Tvdb::new(
+                    http.clone(),
+                    key.clone(),
+                    config.api.tvdb_pin.clone(),
+                    &config.general.language,
+                ))
+            }),
         }
     }
 
@@ -376,7 +392,7 @@ impl Providers {
             Source::Mangabaka => Some(self.mangabaka.clone()),
             Source::Mangadex => Some(self.mangadex.clone()),
             Source::Comicvine => self.comicvine.clone().map(|p| p as Arc<dyn Provider>),
-            Source::Local => None,
+            Source::Tvdb | Source::Local => None,
         }
     }
 
@@ -408,6 +424,7 @@ impl Providers {
                     "ComicVine needs an API key: set COMICVINE_API_KEY or [api] comicvine in the config"
                 ),
             },
+            Source::Tvdb => bail!("TheTVDB only supplies anime episode titles; it can't be used with --id"),
             Source::Local => bail!("'local' is not a lookup source"),
         })
     }
