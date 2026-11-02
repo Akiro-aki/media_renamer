@@ -1,0 +1,342 @@
+{
+ "result": "ok",
+ "response": "collection",
+ "data": [
+  {
+   "id": "875ca31d-ac21-4a49-9270-9c3c286ed4cd",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "1",
+    "fileName": "07b6e139-194a-4438-b07a-57db2f4f22f8.jpg",
+    "locale": "en"
+   }
+  },
+  {
+   "id": "ab74e6a8-3030-4fd9-b66a-8484a700c03b",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "1",
+    "fileName": "59ade418-3590-4d7b-91b0-24c8feaa845f.png",
+    "locale": "ja"
+   }
+  },
+  {
+   "id": "94fca372-b31a-41cd-b4d4-810de5215f84",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "2",
+    "fileName": "8c615e31-baa0-4e3d-89f8-412edb6981de.jpg",
+    "locale": "en"
+   }
+  },
+  {
+   "id": "72a55ae9-9195-4fc8-9190-3cc33395ddb2",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "2",
+    "fileName": "fc3df9c7-ce4c-4e81-8440-099516749158.jpg",
+    "locale": "ja"
+   }
+  },
+  {
+   "id": "57ecb996-9f94-4c7b-93b4-4f9b53ade5ea",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "3",
+    "fileName": "30149b0a-70fb-4a01-b33d-6c6643c60829.jpg",
+    "locale": "en"
+   }
+  },
+  {
+   "id": "5c69776c-423b-4f8e-8a6b-d7ac6867fd3d",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "3",
+    "fileName": "2eb57e50-7baf-4416-b0dd-2cb20adf6ca4.jpg",
+    "locale": "ja"
+   }
+  },
+  {
+   "id": "902530d1-8d93-4627-a8ba-2fcc962d5339",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "4",
+    "fileName": "43fdc4d4-1cd8-4e8c-ad91-57c9d6388c79.jpg",
+    "locale": "en"
+   }
+  },
+  {
+   "id": "dbd056d6-03d7-4f70-a1b0-cad3e17b2d92",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "4",
+    "fileName": "9fbe8b0d-12a5-4a16-a99e-123268d910b9.jpg",
+    "locale": "ja"
+   }
+  },
+  {
+   "id": "f5afe603-4ba6-4ef0-8a19-1720d3133c77",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "5",
+    "fileName": "0011ae02-431b-44d6-872d-7e39f6c66009.jpg",
+    "locale": "en"
+   }
+  },
+  {
+   "id": "78dc903a-efa7-4f4b-8fd9-2bd673cf96d2",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "5",
+    "fileName": "d141ff37-f633-426c-9406-8c73b2f197f9.jpg",
+    "locale": "ja"
+   }
+  },
+  {
+   "id": "3ee44cab-c658-4fc5-8496-02987439cbfc",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "6",
+    "fileName": "774bc4eb-3c5f-467d-8800-7a4fef34f7b9.jpg",
+    "locale": "en"
+   }
+  },
+  {
+   "id": "58138342-53b1-4fb8-b3a3-9ccbace882c7",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "6",
+    "fileName": "2bab7518-8cc8-4df2-888e-5155834142a2.jpg",
+    "locale": "ja"
+   }
+  },
+  {
+   "id": "6056765d-9728-4ac0-8f6f-a950ed3a4fd5",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "7",
+    "fileName": "ed29e94c-e2c3-4592-b2cc-bffe584c3c1b.jpg",
+    "locale": "en"
+   }
+  },
+  {
+   "id": "295de243-053e-4fff-b119-140c281cbe20",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "7",
+    "fileName": "8c3c169a-85fd-45d4-b697-a3ed9eb00419.jpg",
+    "locale": "ja"
+   }
+  },
+  {
+   "id": "a05f6b5f-f7b0-4717-a0b8-b43f29f2cd5b",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "8",
+    "fileName": "d8133023-195f-4822-bfc8-3fbdec38fd76.jpg",
+    "locale": "ja"
+   }
+  },
+  {
+   "id": "aa0a0698-63c2-4ecc-8b7d-5beaca0d2aed",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "8",
+    "fileName": "e65e2aa5-9210-4fef-95fc-8b3706d10157.jpg",
+    "locale": "en"
+   }
+  },
+  {
+   "id": "1a47375d-2316-4bba-b787-d86ce31ce185",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "9",
+    "fileName": "b4874983-21c3-40a6-acef-21f561f45064.jpg",
+    "locale": "ja"
+   }
+  },
+  {
+   "id": "21327446-e478-4ff9-b299-1e1185ce49ea",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "9",
+    "fileName": "f802c58f-cb22-4f75-896c-a3052f61854b.jpg",
+    "locale": "en"
+   }
+  },
+  {
+   "id": "2eb7f6e6-801c-4ba1-856c-d59bf204dbf8",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "10",
+    "fileName": "48c0ec3f-a897-4d57-9837-6ba7e0a50670.jpg",
+    "locale": "en"
+   }
+  },
+  {
+   "id": "c466c760-3553-4fc0-9bb2-1f384939a7fa",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "10",
+    "fileName": "8c89c66f-aa88-4c33-a6e6-dd9cd589e400.jpg",
+    "locale": "ja"
+   }
+  },
+  {
+   "id": "c8d11cdf-5c37-4f75-977d-771a35998c1e",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "11",
+    "fileName": "962ebb77-dbb6-4700-9f6f-4749cf967f69.jpg",
+    "locale": "en"
+   }
+  },
+  {
+   "id": "87a537a5-53c1-4f9d-9c93-c978f0fa1250",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "11",
+    "fileName": "a5dd3e26-278f-45eb-a5ca-2544deee3387.jpg",
+    "locale": "ja"
+   }
+  },
+  {
+   "id": "00383f22-c858-4105-88b0-d0b717865d43",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "12",
+    "fileName": "e6871416-7115-49c3-b9ae-982023596671.jpg",
+    "locale": "en"
+   }
+  },
+  {
+   "id": "780be16b-31f9-4b35-aafa-163c42202384",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "12",
+    "fileName": "76dbf6aa-fa1b-4244-ad2c-1f3b53ea3e9f.jpg",
+    "locale": "ja"
+   }
+  },
+  {
+   "id": "9e4b6891-3bdf-48e0-84f2-ab1dea216f0f",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "13",
+    "fileName": "106e56e6-b632-4ba5-ac6f-160d43c06c27.jpg",
+    "locale": "ja"
+   }
+  },
+  {
+   "id": "32ae2dc3-78c3-4ff3-9c70-ec4e0550308c",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "14",
+    "fileName": "f5845c82-d294-42a3-b732-4bf49ad81a1c.jpg",
+    "locale": "zh"
+   }
+  },
+  {
+   "id": "3c0d381b-128a-4a96-b9b0-3971d3a28c3d",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "14",
+    "fileName": "f6cd8dcd-ad53-47bc-9699-fb758c51d9ba.jpg",
+    "locale": "ja"
+   }
+  },
+  {
+   "id": "85ab774a-d6ee-4a45-b4f9-8183e2b2e8a6",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "15",
+    "fileName": "97b1cd19-74c8-4485-a8e4-9d88f544d810.jpg",
+    "locale": "ja"
+   }
+  },
+  {
+   "id": "71b576b8-6900-4105-823f-8e3e5969810f",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "16",
+    "fileName": "c2949c66-0d54-4201-9ef3-c77190653050.jpg",
+    "locale": "ja"
+   }
+  },
+  {
+   "id": "c991dca0-2c4c-43b6-a03e-4a3b8b36bd59",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "17",
+    "fileName": "9a60773c-e882-45d7-909b-60a78af09003.jpg",
+    "locale": "ja"
+   }
+  },
+  {
+   "id": "692c2f67-6261-4b2a-955e-dd3b6c1fc9ea",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "18",
+    "fileName": "8b02f0ce-9d0b-4e55-b7b1-1d69c853a613.jpg",
+    "locale": "ja"
+   }
+  },
+  {
+   "id": "394b92b9-056a-4b43-a8c4-4e46eac82ec4",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "19",
+    "fileName": "c445d559-be59-4087-b985-a29f294aafb9.jpg",
+    "locale": "ja"
+   }
+  },
+  {
+   "id": "929b5cda-b8d6-482c-83ba-e9f696d2508e",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "20",
+    "fileName": "bfd93aa7-a94c-4e69-9160-723f9295c119.jpg",
+    "locale": "ja"
+   }
+  },
+  {
+   "id": "c05a3d38-71d5-4136-8713-55066e6353f6",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "21",
+    "fileName": "fdf0d950-c72f-405b-9222-8b32a1f6e5ae.jpg",
+    "locale": "ja"
+   }
+  },
+  {
+   "id": "f1ccff8e-9b49-4b65-972b-4fe308806f52",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "22",
+    "fileName": "d34fa144-0e6c-4f1a-8bd4-90e91eb5b3cf.jpg",
+    "locale": "ja"
+   }
+  },
+  {
+   "id": "23f4ba42-b58f-4216-b4cb-186e5506e1cf",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "23",
+    "fileName": "6e518bd1-5f60-446b-8832-bfe6bf74834b.jpg",
+    "locale": "ja"
+   }
+  },
+  {
+   "id": "b74c33b2-1cbf-4e92-b480-d79622cb2020",
+   "type": "cover_art",
+   "attributes": {
+    "volume": "24",
+    "fileName": "d33e65cb-fef7-417f-b74b-e768addd8fe3.jpg",
+    "locale": "ja"
+   }
+  }
+ ],
+ "limit": 100,
+ "offset": 0,
+ "total": 37
+}

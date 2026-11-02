@@ -1,7 +1,7 @@
 //! ComicInfo.xml (Anansi schema v2) for Komga/Kavita, embedded into `.cbz`.
 
 use std::fs::File;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
@@ -12,11 +12,20 @@ use super::nfo::Xml;
 use crate::MediaKind;
 use crate::format::template::format_number;
 use crate::parse::ParsedInfo;
-use crate::providers::{Candidate, Issue};
+use crate::providers::{BookDetails, Candidate, Issue, Role};
 
 const ENTRY: &str = "ComicInfo.xml";
 
-pub fn build(kind: MediaKind, c: &Candidate, info: &ParsedInfo, issue: Option<&Issue>) -> String {
+/// Element order follows the ComicInfo v2.1 schema. `LocalizedSeries` is a
+/// Kavita extension (Komga ignores unknown elements); it goes after `Series`
+/// as in Kavita's own model.
+pub fn build(
+    kind: MediaKind,
+    c: &Candidate,
+    info: &ParsedInfo,
+    issue: Option<&Issue>,
+    details: Option<&BookDetails>,
+) -> String {
     let mut x = Xml::new(
         "ComicInfo",
         " xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"",
@@ -29,9 +38,38 @@ pub fn build(kind: MediaKind, c: &Candidate, info: &ParsedInfo, issue: Option<&I
         .and_then(|i| i.cover_date.as_deref())
         .map(split_date)
         .unwrap_or((None, None, None));
+    let localized = c
+        .english_title
+        .as_ref()
+        .filter(|e| !e.trim().is_empty() && !e.trim().eq_ignore_ascii_case(c.title.trim()));
+    // Count is the total of whatever the files are numbered by (Kavita marks a
+    // series complete when the highest volume or chapter reaches it).
+    let count = details.and_then(|d| match (info.volume, info.chapter) {
+        (None, Some(_)) => d.total_chapters,
+        _ => d.total_volumes,
+    });
+    let names = |role| {
+        details
+            .map(|d| list(d.names(role)))
+            .filter(|s| !s.is_empty())
+    };
+    let mut genres: Vec<&str> = Vec::new();
+    for g in c.genres.iter().chain(details.iter().flat_map(|d| &d.genres)) {
+        if !genres.iter().any(|x| x.eq_ignore_ascii_case(g)) {
+            genres.push(g);
+        }
+    }
+    let mut tags: Vec<&str> = Vec::new();
+    for t in details.iter().flat_map(|d| &d.tags) {
+        if !genres.iter().chain(&tags).any(|x| x.eq_ignore_ascii_case(t)) {
+            tags.push(t);
+        }
+    }
     x.el("Title", issue.and_then(|i| i.title.as_ref()))
         .el("Series", Some(&c.title))
+        .el("LocalizedSeries", localized)
         .el("Number", number.map(|n| format_number(n, 0)))
+        .el("Count", count.map(|n| n.to_string()))
         .el("Volume", info.volume.map(|v| format_number(v, 0)))
         .el(
             "Summary",
@@ -40,13 +78,28 @@ pub fn build(kind: MediaKind, c: &Candidate, info: &ParsedInfo, issue: Option<&I
         .el("Year", year.or(c.year.map(|y| y.to_string())))
         .el("Month", month)
         .el("Day", day)
+        .el("Writer", names(Role::Writer))
+        .el("Penciller", names(Role::Penciller))
         .el("Publisher", c.publisher.as_ref())
-        .el("Genre", (!c.genres.is_empty()).then(|| c.genres.join(", ")))
+        .el("Genre", (!genres.is_empty()).then(|| list(genres)))
+        .el("Tags", (!tags.is_empty()).then(|| list(tags)))
         .el("Web", c.url.as_ref());
     if kind == MediaKind::Manga {
         x.el("Manga", Some("YesAndRightToLeft"));
     }
+    x.el("AgeRating", details.and_then(|d| d.age_rating));
     x.finish()
+}
+
+/// Kavita and Komga split these lists on commas, so a comma inside an
+/// item would split it in two.
+fn list<'a>(items: impl IntoIterator<Item = &'a str>) -> String {
+    items
+        .into_iter()
+        .map(|s| s.replace(',', " ").split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn split_date(d: &str) -> (Option<String>, Option<String>, Option<String>) {
@@ -64,43 +117,85 @@ pub fn supported(path: &Path) -> bool {
 }
 
 /// Write `xml` as ComicInfo.xml into the archive, replacing any existing one.
-/// Entries are copied without recompression; the archive is replaced
-/// atomically.
-pub fn inject(archive: &Path, xml: &str) -> Result<()> {
+/// Returns the entry it replaced, so the change can be undone with
+/// [`restore`].
+pub fn inject(archive: &Path, xml: &str) -> Result<Option<Vec<u8>>> {
+    rewrite(archive, ENTRY, Some(xml.as_bytes()), false)
+}
+
+/// Undo [`inject`]: put back the `previous` ComicInfo.xml, or remove the
+/// entry if the archive had none.
+pub fn restore(archive: &Path, previous: Option<&[u8]>) -> Result<()> {
+    rewrite(archive, ENTRY, previous, false).map(drop)
+}
+
+/// Replace the entry `name` (matched case-insensitively) with `content`, or
+/// drop it, and return the old entry. With `first` the new entry is written
+/// before the others. Other entries are copied without recompression; the
+/// archive is replaced atomically and keeps its modification time.
+pub(crate) fn rewrite(
+    archive: &Path,
+    name: &str,
+    content: Option<&[u8]>,
+    first: bool,
+) -> Result<Option<Vec<u8>>> {
     if !supported(archive) {
-        bail!("ComicInfo can only be embedded in .cbz/.zip archives");
+        bail!("only .cbz/.zip archives can be changed");
     }
     let src = File::open(archive).with_context(|| format!("opening {}", archive.display()))?;
+    let mtime = src.metadata().and_then(|m| m.modified()).ok();
     let mut zin = ZipArchive::new(src).with_context(|| format!("reading {}", archive.display()))?;
 
     let tmp = archive.with_file_name(format!(
         ".{}.mrn-part",
         archive.file_name().unwrap_or_default().to_string_lossy()
     ));
-    let result = (|| -> Result<()> {
+    let result = (|| -> Result<Option<Vec<u8>>> {
+        let mut previous = None;
         let mut zout = ZipWriter::new(File::create(&tmp)?);
+        let write_new = |zout: &mut ZipWriter<File>| -> Result<()> {
+            if let Some(content) = content {
+                let options = SimpleFileOptions::default()
+                    .compression_method(CompressionMethod::Deflated)
+                    .last_modified_time(zip_now());
+                zout.start_file(name, options)?;
+                zout.write_all(content)?;
+            }
+            Ok(())
+        };
+        if first {
+            write_new(&mut zout)?;
+        }
         for i in 0..zin.len() {
-            let entry = zin.by_index_raw(i)?;
-            if entry.name().is_ok_and(|n| n.eq_ignore_ascii_case(ENTRY)) {
+            let is_entry = zin.by_index_raw(i)?.name().is_ok_and(|n| n.eq_ignore_ascii_case(name));
+            if is_entry {
+                let mut old = Vec::new();
+                zin.by_index(i)?.read_to_end(&mut old)?;
+                previous = Some(old);
                 continue;
             }
-            zout.raw_copy_file(entry)?;
+            zout.raw_copy_file(zin.by_index_raw(i)?)?;
         }
-        let options = SimpleFileOptions::default()
-            .compression_method(CompressionMethod::Deflated)
-            .last_modified_time(zip_now());
-        zout.start_file(ENTRY, options)?;
-        zout.write_all(xml.as_bytes())?;
+        if !first {
+            write_new(&mut zout)?;
+        }
         let file = zout.finish()?;
+        if let Some(t) = mtime {
+            let _ = file.set_modified(t);
+        }
         file.sync_all()?;
-        Ok(())
+        Ok(previous)
     })();
-    if let Err(e) = result {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(e.context(format!("rewriting {}", archive.display())));
+    match result {
+        Ok(previous) => {
+            std::fs::rename(&tmp, archive)?;
+            Ok(previous)
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            Err(e.context(format!("rewriting {}", archive.display())))
+        }
     }
-    std::fs::rename(&tmp, archive)?;
-    Ok(())
 }
 
 /// The current UTC time as a zip timestamp. The zip crate's `time` feature
@@ -138,7 +233,6 @@ fn zip_time(secs: u64) -> DateTime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Read;
 
     #[test]
     fn builds_and_injects() {
@@ -167,12 +261,12 @@ mod tests {
             cover_date: Some("2012-03-01".into()),
             ..Default::default()
         };
-        let xml = build(MediaKind::Comic, &c, &info, Some(&issue));
+        let xml = build(MediaKind::Comic, &c, &info, Some(&issue), None);
         assert!(xml.contains("<Number>1</Number>"));
         assert!(xml.contains("<Month>3</Month>"));
         assert!(!xml.contains("<Manga>"));
 
-        inject(&cbz, &xml).unwrap();
+        assert_eq!(inject(&cbz, &xml).unwrap().as_deref(), Some(&b"<old/>"[..]));
         let mut z = ZipArchive::new(File::open(&cbz).unwrap()).unwrap();
         let names: Vec<String> = z.file_names().filter_map(|n| n.ok()).map(|n| n.to_string()).collect();
         assert_eq!(names.len(), 2, "{names:?}");
@@ -185,6 +279,75 @@ mod tests {
         let mut img = Vec::new();
         z.by_name("001.jpg").unwrap().read_to_end(&mut img).unwrap();
         assert_eq!(img, b"jpegdata");
+        drop(z);
+
+        restore(&cbz, Some(b"<old/>")).unwrap();
+        let mut z = ZipArchive::new(File::open(&cbz).unwrap()).unwrap();
+        let mut s = String::new();
+        z.by_name(ENTRY).unwrap().read_to_string(&mut s).unwrap();
+        assert_eq!(s, "<old/>");
+        drop(z);
+        restore(&cbz, None).unwrap();
+        assert_eq!(ZipArchive::new(File::open(&cbz).unwrap()).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn book_details_fill_tags_creators_and_count() {
+        let c = Candidate {
+            title: "Sousou no Frieren".into(),
+            english_title: Some("Frieren: Beyond Journey's End".into()),
+            genres: vec!["Adventure".into(), "Drama".into()],
+            ..Default::default()
+        };
+        let mut d = BookDetails {
+            tags: vec!["Travel".into(), "drama".into(), "Elves, Mages".into()],
+            genres: vec!["Adventure".into(), "Fantasy".into()],
+            total_volumes: Some(15),
+            total_chapters: Some(147),
+            age_rating: Some("Everyone"),
+            ..Default::default()
+        };
+        d.credit(Role::Writer, "Kanehito Yamada");
+        d.credit(Role::Penciller, "Tsukasa Abe");
+        let vol = ParsedInfo {
+            volume: Some(3.0),
+            ..Default::default()
+        };
+        let xml = build(MediaKind::Manga, &c, &vol, None, Some(&d));
+        for want in [
+            "<LocalizedSeries>Frieren: Beyond Journey&apos;s End</LocalizedSeries>",
+            "<Count>15</Count>",
+            "<Writer>Kanehito Yamada</Writer>",
+            "<Penciller>Tsukasa Abe</Penciller>",
+            "<Genre>Adventure, Drama, Fantasy</Genre>",
+            // "drama" is already a genre; the comma inside a tag is dropped.
+            "<Tags>Travel, Elves Mages</Tags>",
+            "<AgeRating>Everyone</AgeRating>",
+        ] {
+            assert!(xml.contains(want), "{want} missing in\n{xml}");
+        }
+        // Schema order: Series, Number, Count, Volume ... Writer ... Genre, Tags ... Manga ... AgeRating.
+        let at = |s: &str| xml.find(s).unwrap();
+        assert!(at("<Series>") < at("<LocalizedSeries>") && at("<Count>") < at("<Volume>"));
+        assert!(at("<Writer>") < at("<Genre>") && at("<Tags>") < at("<Manga>"));
+        assert!(at("<Manga>") < at("<AgeRating>"));
+
+        // A chapter file counts chapters.
+        let ch = ParsedInfo {
+            chapter: Some(12.0),
+            ..Default::default()
+        };
+        assert!(build(MediaKind::Manga, &c, &ch, None, Some(&d)).contains("<Count>147</Count>"));
+        // Without details nothing new appears, and an English title equal to
+        // the title isn't repeated.
+        let same = Candidate {
+            english_title: Some("sousou no frieren".into()),
+            ..c.clone()
+        };
+        let xml = build(MediaKind::Manga, &same, &vol, None, None);
+        for absent in ["LocalizedSeries", "Count", "Writer", "Tags", "AgeRating"] {
+            assert!(!xml.contains(absent), "{absent} in\n{xml}");
+        }
     }
 
     #[test]

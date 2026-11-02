@@ -127,3 +127,39 @@ fn completions_and_man_page() {
         .success()
         .stdout(contains(".TH mrn"));
 }
+
+#[test]
+fn override_sends_replaced_file_to_trash_and_undo_restores_it() {
+    let d = tempfile::tempdir().unwrap();
+    let home = d.path();
+    let target = home.join("lib/The Expanse/Season 02/The Expanse - S02E05.mkv");
+    fs::create_dir_all(home.join("in")).unwrap();
+    fs::create_dir_all(target.parent().unwrap()).unwrap();
+    fs::write(home.join("in/The.Expanse.S02E05.1080p.mkv"), b"new").unwrap();
+    fs::write(&target, b"old").unwrap();
+
+    mrn(home)
+        .args(["rename", "in", "-o", "lib", "--offline", "-n", "--conflict", "override"])
+        .assert()
+        .success()
+        .stdout(contains("goes to the trash"));
+
+    mrn(home)
+        .args(["rename", "in", "-o", "lib", "--offline", "-y", "--conflict", "override"])
+        .assert()
+        .success();
+    assert_eq!(fs::read(&target).unwrap(), b"new");
+    let trashed = home.join("data/Trash/files/The Expanse - S02E05.mkv");
+    assert_eq!(fs::read(&trashed).unwrap(), b"old");
+    assert!(home.join("data/Trash/info/The Expanse - S02E05.mkv.trashinfo").exists());
+
+    mrn(home)
+        .args(["undo", "-y"])
+        .assert()
+        .success()
+        .stdout(contains("restore 1 replaced file(s) from the trash"))
+        .stdout(contains("undone"));
+    assert_eq!(fs::read(home.join("in/The.Expanse.S02E05.1080p.mkv")).unwrap(), b"new");
+    assert_eq!(fs::read(&target).unwrap(), b"old");
+    assert!(!trashed.exists());
+}

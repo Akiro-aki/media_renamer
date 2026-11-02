@@ -17,6 +17,7 @@ pub mod pipeline;
 pub mod preview;
 pub mod providers;
 pub mod scan;
+pub mod trash;
 
 use std::fmt;
 use std::str::FromStr;

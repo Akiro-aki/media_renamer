@@ -61,9 +61,11 @@ same `preview::Preview`; they differ only in their `Chooser`.
 | `format/mod.rs` | `Fields`, `Value`, `Formatter` (template list → relative path) |
 | `ops.rs` | `Action`, `Conflict`, `build_plan` (conflicts), `apply` (fs ops), `move_file`, `copy_file`, `prune_empty_dirs` |
 | `history.rs` | SQLite batch/op log and `undo` |
+| `trash.rs` | freedesktop.org trash on the file's own file system: `Trash::put`, `restore` |
 | `extras/mod.rs` | Which extra files to create where (`plan`) |
 | `extras/nfo.rs` | Kodi/Jellyfin nfo XML and a tiny XML builder/escaper |
-| `extras/comicinfo.rs` | ComicInfo.xml build and `.cbz` injection |
+| `extras/comicinfo.rs` | ComicInfo.xml build, `.cbz` injection (`inject`) and its reversal (`restore`); `rewrite` changes one archive entry |
+| `extras/cover.rs` | Kavita's cover-image rule (`is_cover_image`), embedding a volume cover (`embed`) and removing it (`remove`) |
 | `config.rs` + `config_template.toml` | Config struct, load and env overrides, XDG dirs, starter template |
 | `pipeline.rs` | `Options`, `Chooser`, `Engine`, `Item`, `Analysis`, `ExecEvent`, `build_fields` |
 | `preview.rs` | `Preview`/`PreviewRow`/`RowState`: display-ready rows shared by CLI and GUI; `relative`, `ago` |
@@ -75,6 +77,7 @@ same `preview::Preview`; they differ only in their `Chooser`.
 | Config | `~/.config/mrn/config.toml` | `--config`, `$MRN_CONFIG` |
 | Cache | `~/.cache/mrn/cache.db` | `$XDG_CACHE_HOME` |
 | History | `~/.local/share/mrn/history.db` | `$XDG_DATA_HOME` |
+| Replaced files (`--conflict override`) | `~/.local/share/Trash`, or `<mount>/.Trash-$UID` for other file systems | `$XDG_DATA_HOME` |
 | API keys | config `[api]` | `$TMDB_API_KEY`, `$COMICVINE_API_KEY` (env wins) |
 | Logging | stderr | `-v`/`-vv`, `$RUST_LOG` |
 
@@ -97,13 +100,18 @@ same `preview::Preview`; they differ only in their `Chooser`.
    - AniList anime → cross-reference TMDB: search TV by the English title, then the configured title. Accept a result scoring ≥ `CROSS_REF_THRESHOLD` (0.85), then fetch its series.
    - No TMDB key → nothing (anime keeps absolute numbering, no titles).
 6. **Formatters.** One `Formatter` per kind present: `--format` (preset name or template), then the config `[format].<kind>`, then the config preset. A bad template fails the whole run early.
-7. **Comic issue titles** (concurrent), only if `--comicinfo` is on or the comic template uses `{t}`. ComicVine allows only 200 requests per hour.
-8. **Name each file.** `find_episodes` matches by season+episode, then absolute, then air date. `build_fields` fills the fields, and `render_target` produces the full target path or an error string.
+7. **Comic issue titles** (concurrent), only if `--comicinfo` or covers are on, or the comic template uses `{t}`. ComicVine allows only 200 requests per hour.
+8. **Series details** (concurrent), only with `--comicinfo`: `Provider::book_details` once per matched book series (AniList, MangaDex, MangaBaka; empty for ComicVine), stored in `Match.book`.
+9. **Volume covers** (concurrent), only with `--embed-cover` or `--artwork -f komga`: `Engine::manga_covers` once per matched manga series, stored in `Match.covers`. The MangaDex id is the match's own, else `ext_ids`, else a MangaDex title search (`mangadex_by_title`): an entry sharing the AniList or MAL id wins, one with a different id is dropped, otherwise the best title must score ≥ `CROSS_REF_THRESHOLD`. Then `Mangadex::volume_covers` (see below).
+10. **Name each file.** `find_episodes` matches by season+episode, then absolute, then air date. `build_fields` fills the fields, and `render_target` produces the full target path or an error string.
 
-`Engine::plan` turns items with targets into `ops::Request`s and calls `build_plan`.
+`Engine::plan` turns items with targets into `ops::Request`s and calls `build_plan`
+(which may reorder them, see below).
 
 `Engine::execute` begins a history batch and then, for each runnable plan item:
-- Run the main op. ComicInfo is embedded before `finish_op`, so the recorded size/mtime are final.
+- Run the main op (an `Overwrite` item passes `history.trash()` to `apply`), then `finish_op`.
+- Embed ComicInfo as a separate `OpKind::Embed` op that stores the entry it replaced.
+- Embed the book's cover (`--embed-cover`) as an `OpKind::Cover` op that stores the entry name it added. Images are downloaded once per URL per batch.
 - Run the sidecar ops.
 - Write extras, each recorded as an `OpKind::Create` op.
 - With `--clean`, prune empty source dirs up to the scan root.
@@ -202,16 +210,17 @@ behaviour. The test reports every mismatch at once.
 | Kind | Order | Notes |
 |------|-------|-------|
 | movie, tv | TMDB | v3 key → `api_key` query param; v4 token (`eyJ…`) → Bearer header. Retries the search without the year when the year gives no results |
-| anime | AniList | GraphQL, `sort: SEARCH_MATCH`, title by `anime_title` preference (romaji default) |
-| manga | AniList → MangaDex | MangaDex only if AniList has no confident match |
+| anime | AniList → MAL (`[providers] anime`) | AniList: GraphQL, `sort: SEARCH_MATCH`, title by `anime_title` preference (romaji default). MAL through Jikan, no key |
+| manga | AniList → MangaBaka → MangaDex (`[providers] manga`) | Each later source only if the earlier ones have no confident match. MangaBaka: `/series/search?type_not=novel`, title from the `<lang>-Latn` primary title for romaji, AniList and MAL ids from `source`, merged series followed to `merged_with`; it has no MangaDex ids |
 | comic | ComicVine | volumes via `/search/`, issues via `/issues/?filter=volume:ID,issue_number:N` |
 
 TMDB `series()` fetches `/tv/{id}` and every season concurrently. It numbers
 episodes of seasons ≥ 1 in order as `absolute`; specials have none.
 
 `http.rs`:
-- **Token bucket per host:** AniList 5 burst / 0.5 per second, MangaDex 5 / 4, ComicVine 10 / (200 per hour), TMDB 20 / 20, default 10 / 10.
-- **Retries:** up to 4 attempts on 429/5xx (honouring `Retry-After`, capped at 60 s), timeouts and connect errors, with 1/2/4/8 s backoff.
+- **Token bucket per host:** AniList 5 burst / 0.5 per second, MangaDex 5 / 4, Jikan 3 / 1, MangaBaka 5 / 0.5, ComicVine 10 / (200 per hour), TMDB 20 / 20, default 10 / 10.
+- **Retries:** up to 4 attempts on 429/5xx (honouring `Retry-After`, capped at 60 s), timeouts and connect errors, with 1/2/4 s backoff between attempts (none after the last).
+- **Unreachable hosts:** if all 4 attempts fail with timeouts or connect errors, that `Http` skips the host for 5 minutes and later requests to it fail at once, so the pipeline falls through to the next provider without waiting. A 429/5xx never triggers this.
 - **Cache:** the key is the method + URL + query without secret params (`api_key`) + the POST body. TTL is `cache_ttl_hours` (72). `--refresh` skips cache reads.
 - **Errors:** strip URLs with `without_url()` so API keys never reach messages.
 
@@ -246,11 +255,16 @@ The table leaves out optional brackets. See `presets.rs` for exact strings.
 - A target equal to the source → `Skip("already named correctly")`.
 - Clash detection covers targets claimed earlier in the batch and existing files. A file that is the same inode as the source (a case-only rename or a hard link) is not a clash.
 - `skip` → Skip. `override` → `Overwrite` for disk clashes but Skip for batch clashes. `index` → `Name (1).ext` … `(99)`.
+- **Chain renames** (only with `move`): a target that another item moves away (A→B while B→C) is not a disk clash.
+  `build_plan` assumes every source is vacated, plans, drops the sources whose items turned out not to run, and
+  plans again until the assumption holds. `run_order` then sorts the items (Kahn, stable) so the item that frees a
+  path runs first. Items in a cycle (A→B, B→A) are skipped ("would trade names").
 - Sidecar targets are derived from the final main target (`<new stem><suffix>`).
 
 `apply`:
 - Creates parent directories and returns the ones it created.
-- Refuses an existing target unless overwriting. The comparison doesn't follow symlinks, so a link to the source counts as a different file.
+- Refuses an existing target unless given a `Trash`; then the existing file is moved to the trash first (put back if
+  the operation fails) and returned in `Applied::replaced`. The comparison doesn't follow symlinks, so a link to the source counts as a different file.
 - `move` = `rename`, with copy + fsync + remove on `CrossesDevices`.
 - `copy` writes `.<name>.mrn-part`, keeps the mtime, fsyncs, then renames.
 - `hardlink`; `symlink` (to the absolute source path).
@@ -262,16 +276,26 @@ Schema:
 ```sql
 batches(id, created, action, args, status)          -- running | done | partial | undone
 ops(id, batch, kind, src BLOB, dst BLOB, status,     -- pending | done | failed | undone
-    size, mtime_ns, overwrote, error)
+    size, mtime_ns, overwrote, error,
+    backup BLOB,                                     -- trash path of the file this op replaced
+    data BLOB)                                       -- embed: the previous ComicInfo.xml (NULL = none)
 dirs(batch, path BLOB)                               -- folders the batch created
 ```
 
 Paths are stored as raw bytes, so non-UTF-8 names work.
 
-- **Recording:** `start_op` (pending) runs before touching the disk; `finish_op` stats the target afterwards.
+- **Recording:** `start_op` (pending) runs before touching the disk; `finish_op` stats the target afterwards
+  and records the trash path of a replaced file; `finish_embed` records the replaced ComicInfo.xml.
+- **Migration:** `History::open` adds `backup`/`data` to older databases. Old ops with `overwrote = 1` and no
+  backup still warn that the replaced file can't be restored.
 - **`undo` order:** reverse op order.
   - `move` → move back, refusing if the original path is occupied.
   - `copy` / `hardlink` / `symlink` / `create` → delete.
+  - then, if the op replaced a file, move it back from the trash and remove its `.trashinfo`.
+  - `embed` → rewrite the archive with the previous ComicInfo.xml (or none), keeping its mtime. `cover` →
+    remove the entry it added. Both (`OpKind::edits_in_place`) are skipped when a copy in the same batch made
+    the archive (it is deleted next), aren't counted as files in batch totals, and afterwards the earlier ops
+    on that archive are re-stat'ed, since they recorded it before the edit.
   - Ops whose target changed (size or mtime) are skipped unless `force`.
   - Created dirs are then removed deepest-first if empty.
   - The batch becomes `undone`, or `partial` if anything was skipped. `mrn undo` picks the newest batch that isn't `undone`.
@@ -286,22 +310,69 @@ downloads images.
 |---|---|---|
 | movie | `<stem>.nfo` | `<stem>-poster.jpg`, `<stem>-fanart.jpg` |
 | tv/anime | `<stem>.nfo` (episodedetails); `tvshow.nfo` in the series dir* | `poster`, `fanart`, `seasonNN-poster` / `season-specials-poster` in the series dir* |
-| comic/manga | (ComicInfo instead) | `cover.<ext>` in the series folder* |
+| comic/manga | (ComicInfo instead) | `cover.<ext>` in the series folder*; with `-f komga`, also the book's own cover as `<stem>.<ext>` beside it |
 
 \* Only when `organized` (a library root was used). The series dir is the
 target's folder, or its parent if that folder is a season folder.
 
+**Book covers.** A book's cover is the comic issue's (`Issue.cover` from
+ComicVine) or its manga volume's. `Mangadex::volume_covers` reads
+`/cover?manga[]=ID&order[volume]=asc` (100 per page, at most 10 pages) and keeps
+one per volume: the manga's `originalLanguage` locale, else `en`, else any. For
+chapter files it also reads `/manga/{id}/aggregate` to find each chapter's
+volume. Uploaders misfile chapters (Chainsaw Man lists chapter 232 in volume 1),
+so a chapter more than 3 median absolute deviations (and more than the volume's
+chapter count) from the rest of its volume is ignored there. A chapter in no
+volume, or a volume without a cover, gets no cover. MangaDex only lists the
+chapters it hosts, so licensed series often have few.
+
+- Kavita takes a book's cover only from inside the archive, and would list a
+  `<stem>.jpg` beside it as an extra image chapter (manga libraries scan
+  images by default). `--embed-cover` adds `!cover.<ext>` as the first entry,
+  unless an image already matches Kavita's `CoverImageRegex` (`cover::is_cover_image`,
+  tested with Kavita's own cases). It is an extra page.
+- Komga prefers a `<stem>.<ext>` beside the book over its first page, so with
+  `--artwork -f komga` (the preset named by `--format`, else the config's) the
+  cover is saved there and the archive is not touched.
+
 ComicInfo is embedded only with `move` or `copy`, only into `.cbz`/`.zip`.
+So are covers.
+From the series details it adds `LocalizedSeries` (the English title when it
+differs; a Kavita extension that Komga ignores), `Count` (total volumes, or
+chapters for chapter files, only for finished series), `Writer`, `Penciller`,
+`Tags` (at most 15, without genres or spoilers) and `AgeRating` (a label both
+Kavita and Komga know). Kavita and Komga split lists on commas, so commas
+inside a name or tag are dropped.
+
+| Source | Tags | Creators | Count | AgeRating |
+|---|---|---|---|---|
+| AniList | rank ≥ 60, no spoilers, highest first | Story → Writer, Art → Penciller, Story & Art → both (notes in brackets ignored) | `volumes`/`chapters` when `FINISHED` | Adults Only 18+ when `isAdult` |
+| MangaDex | `theme`/`format`/`content` tags (`genre` ones → Genre) | author → Writer, artist → Penciller | `lastVolume`/`lastChapter` when `completed` | from `contentRating` |
+| MangaBaka | `tags_v2` with weight `core` | `authors` → Writer, `artists` → Penciller | `final_volume`/`total_chapters` when `completed` | from `content_rating` |
+
+`contentRating`: safe → Everyone, suggestive → Teen, erotica → Mature 17+,
+pornographic → Adults Only 18+.
 Existing entries are copied raw (no recompression), any old `ComicInfo.xml` is
-replaced, and the archive is swapped in atomically.
+replaced (and returned for the history), the archive keeps its mtime and is
+swapped in atomically.
+
+## Trash (`trash.rs`)
+
+Follows the freedesktop.org trash spec, but only ever uses a trash on the
+file's own file system, so trashing is a rename: the home trash when the file
+shares its device, else `$top/.Trash/$uid` (an admin `.Trash` with the sticky
+bit) or `$top/.Trash-$uid` at the mount root. The `.trashinfo` is created with
+`create_new` first to reserve the name; `Path=` is absolute for the home trash
+and relative to the mount root otherwise. If no trash is usable, the overwrite
+fails and the existing file stays.
 
 ## Tests
 
 | Suite | What |
 |---|---|
-| unit tests (37) in `mrn-core/src/**` | template, sanitize, presets, matcher, ops, history, cache, http (wiremock), each provider (wiremock), extras, nfo, comicinfo, scan, config template |
+| unit tests (69, plus 1 ignored live AniList test) in `mrn-core/src/**` | template, sanitize, presets, matcher, ops (incl. chain renames, replace via trash), history (incl. trash restore, ComicInfo and cover revert, migration), trash, cache, http (wiremock, incl. unreachable-host skip), each provider (wiremock, several on trimmed real responses in `tests/fixtures/`), extras (incl. Komga sidecars), nfo, comicinfo, cover (Kavita's cover-name cases), scan, config template |
 | `mrn-core/tests/parser_corpus.rs` | 76 filename cases from `fixtures/filenames.toml` |
-| `mrn-core/tests/pipeline.rs` (3) | full TV + movie + anime (AniList→TMDB cross-ref) flow with nfo, execute, undo; uncertain match fail/ask/search; `--id` and `--offline` |
-| `mrn-cli/tests/cli.rs` (6) | real binary in isolated XDG dirs: rename/history/undo, `--yes` needed without a TTY, missing TMDB key message, config init/show masking, info, bad template, completions/man |
+| `mrn-core/tests/pipeline.rs` (12) | full TV + movie + anime (AniList→TMDB cross-ref) flow with nfo, execute, undo; uncertain match fail/ask/search; `--id` and `--offline`; provider order and cross-site ids; MAL fallbacks and episode titles without a TMDB key; later seasons via the sequel chain; manga falling back to MangaBaka; ComicInfo details then undo; Kavita embedded covers and Komga sidecars then undo |
+| `mrn-cli/tests/cli.rs` (7) | real binary in isolated XDG dirs: rename/history/undo, `--conflict override` → trash → undo, `--yes` needed without a TTY, missing TMDB key message, config init/show masking, info, bad template, completions/man |
 | `mrn-gui` `worker::tests` (1) | the GUI's job thread headless: offline preview → apply → undo, and cancel after preview leaves files alone |
 | `mrn-gui` `snapshots` (ignored) | renders every screen with sample data to PNG (`MRN_GUI_SNAPSHOTS=dir cargo test -p mrn-gui -- --ignored`) |

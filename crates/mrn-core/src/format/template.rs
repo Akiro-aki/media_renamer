@@ -11,9 +11,9 @@ use std::fmt;
 use super::{Fields, Value, sanitize};
 
 pub const KNOWN_FIELDS: &[&str] = &[
-    "n", "y", "id", "tmdbid", "anilistid", "source", "kind", "s", "e", "abs", "s00e00", "sxe",
-    "t", "d", "vol", "ch", "issue", "vf", "vs", "vc", "ac", "group", "crc", "orig", "ot",
-    "publisher",
+    "n", "y", "id", "tmdbid", "anilistid", "malid", "mangabakaid", "source", "kind", "s", "e",
+    "abs", "s00e00", "sxe", "t", "d", "vol", "ch", "issue", "vf", "vs", "vc", "ac", "group", "crc",
+    "orig", "ot", "publisher",
 ];
 
 #[derive(Debug, Clone, PartialEq)]

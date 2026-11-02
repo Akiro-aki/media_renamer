@@ -1,0 +1,893 @@
+{
+ "status": 200,
+ "data": {
+  "id": 1995,
+  "state": "active",
+  "merged_with": null,
+  "canonical_url": "https://mangabaka.org/manga/1995/Frieren-Beyond-Journey-s-End",
+  "title": "Frieren: Beyond Journey’s End",
+  "native_title": "葬送のフリーレン",
+  "romanized_title": "Frieren Cenazede",
+  "cover": {
+   "raw": {
+    "url": "https://images.mangabaka.dev/2/c/8/f/c/a/b/7/8b6b/4b85/b23d/49d0bf08af76"
+   }
+  },
+  "authors": [
+   "Kanehito Yamada"
+  ],
+  "artists": [
+   "Tsukasa Abe"
+  ],
+  "description": "The adventure is over but life goes on for an elf mage just beginning to learn what living is all about. ",
+  "year": 2020,
+  "published": {
+   "start_date": "2020-04-28",
+   "end_date": "2025-10-15",
+   "start_date_is_estimated": false,
+   "end_date_is_estimated": false
+  },
+  "status": "completed",
+  "content_rating": "safe",
+  "type": "manga",
+  "original_language": "ja",
+  "final_volume": "15",
+  "total_chapters": "147",
+  "titles": [
+   {
+    "language": "ko",
+    "traits": [
+     "official"
+    ],
+    "title": "장송의 프리렌",
+    "note": null,
+    "is_primary": true
+   },
+   {
+    "language": "pt",
+    "traits": [
+     "official"
+    ],
+    "title": "Frieren",
+    "note": null,
+    "is_primary": true
+   },
+   {
+    "language": "en",
+    "traits": [],
+    "title": "Frieren",
+    "note": null,
+    "is_primary": false
+   },
+   {
+    "language": "id",
+    "traits": [],
+    "title": "Frieren: After \"The End\"",
+    "note": null,
+    "is_primary": true
+   },
+   {
+    "language": "en",
+    "traits": [],
+    "title": "Frieren at the Funeral",
+    "note": null,
+    "is_primary": false
+   },
+   {
+    "language": "en",
+    "traits": [
+     "official"
+    ],
+    "title": "Frieren: Beyond Journey's End",
+    "note": null,
+    "is_primary": true
+   },
+   {
+    "language": "ja-Latn",
+    "traits": [],
+    "title": "Frieren Cenazede",
+    "note": null,
+    "is_primary": false
+   },
+   {
+    "language": "pt",
+    "traits": [],
+    "title": "Frieren e a Jornada para o Além",
+    "note": null,
+    "is_primary": false
+   },
+   {
+    "language": "es-la",
+    "traits": [],
+    "title": "Frieren: Más allá del final",
+    "note": null,
+    "is_primary": true
+   },
+   {
+    "language": "es-la",
+    "traits": [],
+    "title": "Frieren: Más allá del fin del viaje",
+    "note": null,
+    "is_primary": false
+   },
+   {
+    "language": "de",
+    "traits": [],
+    "title": "Frieren: Nach dem Ende der Reise",
+    "note": null,
+    "is_primary": true
+   },
+   {
+    "language": "it",
+    "traits": [
+     "official"
+    ],
+    "title": "Frieren: Oltre la Fine del Viaggio",
+    "note": null,
+    "is_primary": true
+   },
+   {
+    "language": "id",
+    "traits": [],
+    "title": "Frieren: Perjalanan Selepas Penamat",
+    "note": null,
+    "is_primary": false
+   },
+   {
+    "language": "vi",
+    "traits": [],
+    "title": "Frieren - Pháp sư tiễn táng",
+    "note": null,
+    "is_primary": false
+   },
+   {
+    "language": "en",
+    "traits": [],
+    "title": "Frieren: Remnants of the Departed",
+    "note": null,
+    "is_primary": false
+   },
+   {
+    "language": "en",
+    "traits": [],
+    "title": "Frieren the Slayer",
+    "note": null,
+    "is_primary": false
+   },
+   {
+    "language": "pl",
+    "traits": [],
+    "title": "Frieren. U kresu drogi",
+    "note": null,
+    "is_primary": true
+   },
+   {
+    "language": "no",
+    "traits": [],
+    "title": "Frieren: Ved reisens ende",
+    "note": null,
+    "is_primary": true
+   },
+   {
+    "language": "en",
+    "traits": [],
+    "title": "Frieren Who Sees Off The Dead",
+    "note": null,
+    "is_primary": false
+   },
+   {
+    "language": "en",
+    "traits": [],
+    "title": "Funeral Frieren",
+    "note": null,
+    "is_primary": false
+   },
+   {
+    "language": "cs",
+    "traits": [],
+    "title": "Když jedna cesta končí",
+    "note": null,
+    "is_primary": true
+   },
+   {
+    "language": "vi",
+    "traits": [],
+    "title": "Pháp Sư Tiễn Táng Frieren",
+    "note": null,
+    "is_primary": true
+   },
+   {
+    "language": "ja-Latn",
+    "traits": [],
+    "title": "Sōsō no Frieren",
+    "note": null,
+    "is_primary": false
+   },
+   {
+    "language": "ja-Latn",
+    "traits": [
+     "native"
+    ],
+    "title": "Sousou no Frieren",
+    "note": null,
+    "is_primary": true
+   },
+   {
+    "language": "el",
+    "traits": [],
+    "title": "Φρίρεν: Πέρα από το Τέλος του Ταξιδιού",
+    "note": null,
+    "is_primary": true
+   },
+   {
+    "language": "uk",
+    "traits": [],
+    "title": "Проводжальниця Фрірен",
+    "note": null,
+    "is_primary": true
+   },
+   {
+    "language": "ru",
+    "traits": [],
+    "title": "Провожающая в последний путь Фрирен",
+    "note": null,
+    "is_primary": false
+   },
+   {
+    "language": "ru",
+    "traits": [],
+    "title": "Фрирен, провожающая в последний путь",
+    "note": null,
+    "is_primary": true
+   },
+   {
+    "language": "ar",
+    "traits": [],
+    "title": "سوسو فريرين",
+    "note": null,
+    "is_primary": true
+   },
+   {
+    "language": "ar",
+    "traits": [],
+    "title": "فريرن ورحلة النهاية",
+    "note": null,
+    "is_primary": false
+   },
+   {
+    "language": "ne",
+    "traits": [],
+    "title": "अन्त्येष्टिमा फ्रिरेन",
+    "note": null,
+    "is_primary": true
+   },
+   {
+    "language": "th",
+    "traits": [],
+    "title": "คำอธิษฐานในวันที่จากลา Frieren",
+    "note": null,
+    "is_primary": true
+   },
+   {
+    "language": "th",
+    "traits": [],
+    "title": "คำอธิษฐานในวันที่จากลา FRIEREN (SIC)",
+    "note": null,
+    "is_primary": false
+   },
+   {
+    "language": "ja",
+    "traits": [
+     "native"
+    ],
+    "title": "葬送のフリーレン",
+    "note": null,
+    "is_primary": true
+   },
+   {
+    "language": "zh",
+    "traits": [],
+    "title": "葬送的芙莉莲",
+    "note": null,
+    "is_primary": false
+   },
+   {
+    "language": "zh-Hant",
+    "traits": [],
+    "title": "葬送的芙莉蓮",
+    "note": null,
+    "is_primary": true
+   },
+   {
+    "language": "zh",
+    "traits": [],
+    "title": "葬送的芙莉蓮",
+    "note": null,
+    "is_primary": true
+   },
+   {
+    "language": "ja",
+    "traits": [],
+    "title": "葬送者芙莉莲",
+    "note": null,
+    "is_primary": false
+   }
+  ],
+  "genres": [
+   "adventure",
+   "drama",
+   "fantasy",
+   "comedy",
+   "shounen",
+   "slice_of_life",
+   "supernatural",
+   "award_winning"
+  ],
+  "tags": [
+   "Elf Protagonist",
+   "Scars",
+   "Dead Friends",
+   "Time Skip in First Chapter/Prologue",
+   "Calm Protagonist"
+  ],
+  "relationships": {
+   "side_story": [
+    64805,
+    100730
+   ]
+  },
+  "source": {
+   "anilist": {
+    "id": 118586
+   },
+   "anime_planet": {
+    "id": "frieren-beyond-journeys-end"
+   },
+   "anime_news_network": {
+    "id": 24449
+   },
+   "kitsu": {
+    "id": 56355
+   },
+   "manga_updates": {
+    "id": "ugf5dzu"
+   },
+   "my_anime_list": {
+    "id": 126287
+   },
+   "shikimori": {
+    "id": 126287
+   }
+  },
+  "tags_v2": [
+   {
+    "name": "Cooking",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Travel",
+    "weight": "core",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Spearplay",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Male Demographic with Female Lead",
+    "weight": "recurrent",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Shounen",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Kuudere",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Kuudere Characters",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Hero",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Age Progression",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Older Female Lead",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Big Breasts",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Scars",
+    "weight": "recurrent",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Strong Character",
+    "weight": "incidental",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Female Lead",
+    "weight": "core",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Unaging Female Lead",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Calm Female Lead",
+    "weight": "core",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Clumsy Female Lead",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Expressionless Female Lead",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Kind female Lead",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Stoic Female Lead",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Elf Female Lead",
+    "weight": "incidental",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Immortal Female Lead",
+    "weight": "recurrent",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Strong Female Lead",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Asexual Character",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Calm Protagonist",
+    "weight": "core",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Non-Human Protagonist",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Adapted to Anime",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Fairy Tale",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Dungeon",
+    "weight": "recurrent",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Europe",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Snowscape",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Tragic Past",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Appearance Different from Actual Age",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Character Growth",
+    "weight": "core",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Protagonist Strong from the Start",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Character Death",
+    "weight": "defining",
+    "is_spoiler": true,
+    "is_genre": false
+   },
+   {
+    "name": "Dead Friend",
+    "weight": "core",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Death of Loved One",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Life-Changing Events",
+    "weight": "recurrent",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Subtle Romance",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Memories",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Past Plays a Big Role",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Time Manipulation",
+    "weight": "recurrent",
+    "is_spoiler": true,
+    "is_genre": false
+   },
+   {
+    "name": "Time Skip",
+    "weight": "core",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Time Skip In First Chapter/Prologue",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Time Travel",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Saving the World",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Flashbacks",
+    "weight": "core",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Time Progression",
+    "weight": "core",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Priests",
+    "weight": "incidental",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Demon King",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Apprentice",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Mages",
+    "weight": "core",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Warrior",
+    "weight": "recurrent",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Older Female Younger Male",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Heterosexual",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Master-Disciple Relationship",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "European Ambience",
+    "weight": "recurrent",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Fantasy",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": true
+   },
+   {
+    "name": "Fantasy World",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Sci-Fi",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": true
+   },
+   {
+    "name": "Supernatural",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": true
+   },
+   {
+    "name": "Elf Protagonist",
+    "weight": "recurrent",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Non-human",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Elves",
+    "weight": "core",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Demons",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Adventure",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": true
+   },
+   {
+    "name": "Comedy",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": true
+   },
+   {
+    "name": "Coming of Age",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Death",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Drama",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": true
+   },
+   {
+    "name": "Female Empowerment",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Gourmet",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Lifetime",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Immortality",
+    "weight": "recurrent",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Philosophy",
+    "weight": "core",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Religion",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Unrequited Love",
+    "weight": "defining",
+    "is_spoiler": true,
+    "is_genre": false
+   },
+   {
+    "name": "Slice of Life",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": true
+   },
+   {
+    "name": "Iyashikei",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Tragedy",
+    "weight": "defining",
+    "is_spoiler": true,
+    "is_genre": true
+   },
+   {
+    "name": "Medieval",
+    "weight": "defining",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Award-Nominated Work",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Award Winning",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Male Demographic with Female Artist",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Hiatus",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Episodic",
+    "weight": "unweighted",
+    "is_spoiler": false,
+    "is_genre": false
+   },
+   {
+    "name": "Magic",
+    "weight": "core",
+    "is_spoiler": false,
+    "is_genre": false
+   }
+  ]
+ }
+}

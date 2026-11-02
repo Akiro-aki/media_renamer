@@ -1,0 +1,785 @@
+{
+ "status": 200,
+ "pagination": {
+  "count": 3,
+  "next": null,
+  "previous": null,
+  "page": 1,
+  "limit": 10
+ },
+ "data": [
+  {
+   "id": 3397,
+   "state": "active",
+   "merged_with": null,
+   "canonical_url": "https://mangabaka.org/manhwa/3397/Solo-Leveling",
+   "title": "Solo Leveling",
+   "native_title": "나 혼자만 레벨업",
+   "romanized_title": "Na Honjaman Lebel-eob",
+   "cover": {
+    "raw": {
+     "url": "https://images.mangabaka.dev/9/d/f/d/5/9/c/6/f032/4552/b91f/86686c9e7c8b.jpg"
+    }
+   },
+   "authors": [
+    "Chu-Gong"
+   ],
+   "artists": [
+    "DISCIPLES (Redice Studio)",
+    "DUBU (Redice Studio)",
+    "Redice Studio"
+   ],
+   "description": "In a world where awakened beings called “Hunters” must battle deadly monsters to protect humanity, Sung Jinwoo, nicknamed “the weakest hunter of all mankind,” finds himself in a constant struggle for survival. One day, after a brutal encounter in an overpowered dungeon wipes out his party and threat",
+   "year": 2018,
+   "published": {
+    "start_date": "2018-03-04",
+    "end_date": "2023-05-31",
+    "start_date_is_estimated": false,
+    "end_date_is_estimated": false
+   },
+   "status": "completed",
+   "content_rating": "safe",
+   "type": "manhwa",
+   "original_language": "ko",
+   "final_volume": "15",
+   "total_chapters": "201",
+   "titles": [
+    {
+     "language": "ko",
+     "traits": [],
+     "title": "나혼렙",
+     "note": null,
+     "is_primary": false
+    },
+    {
+     "language": "ko",
+     "traits": [
+      "native"
+     ],
+     "title": "나 혼자만 레벨업",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "id",
+     "traits": [],
+     "title": "Aku Level Up Sendiri",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "tr",
+     "traits": [
+      "alternative"
+     ],
+     "title": "Ben yanlız gelişirim",
+     "note": null,
+     "is_primary": false
+    },
+    {
+     "language": "vi",
+     "traits": [],
+     "title": "Chỉ Mình Tôi Thăng Cấp",
+     "note": null,
+     "is_primary": false
+    },
+    {
+     "language": "hu",
+     "traits": [],
+     "title": "Egyéni szintlépés",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "id",
+     "traits": [],
+     "title": "Grinding Sendiri",
+     "note": null,
+     "is_primary": false
+    },
+    {
+     "language": "en",
+     "traits": [],
+     "title": "I Alone Level-Up",
+     "note": null,
+     "is_primary": false
+    },
+    {
+     "language": "en",
+     "traits": [],
+     "title": "I am the only the one who levels up",
+     "note": null,
+     "is_primary": false
+    },
+    {
+     "language": "en",
+     "traits": [],
+     "title": "I Level Up Alone",
+     "note": null,
+     "is_primary": false
+    },
+    {
+     "language": "pt-br",
+     "traits": [
+      "alternative"
+     ],
+     "title": "Jogador solo",
+     "note": null,
+     "is_primary": false
+    },
+    {
+     "language": "ko-Latn",
+     "traits": [],
+     "title": "Na Honjaman Lebel-eob",
+     "note": null,
+     "is_primary": false
+    },
+    {
+     "language": "ko-Latn",
+     "traits": [
+      "native"
+     ],
+     "title": "Na Honjaman Level Up",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "en",
+     "traits": [],
+     "title": "Only I Level Up",
+     "note": null,
+     "is_primary": false
+    },
+    {
+     "language": "ja-Latn",
+     "traits": [
+      "native"
+     ],
+     "title": "Ore Dake Level-Up na Ken",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "tr",
+     "traits": [
+      "alternative"
+     ],
+     "title": "Sadece Ben Seviye Atlayabiliyorum",
+     "note": null,
+     "is_primary": false
+    },
+    {
+     "language": "ro",
+     "traits": [],
+     "title": "Singur îmi ridic nivelul",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "la",
+     "traits": [],
+     "title": "Solo Adtritio",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "pt",
+     "traits": [
+      "official"
+     ],
+     "title": "Solo Leveling",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "en",
+     "traits": [
+      "official"
+     ],
+     "title": "Solo Leveling",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "tr",
+     "traits": [
+      "official"
+     ],
+     "title": "Solo Leveling",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "pt-br",
+     "traits": [
+      "official"
+     ],
+     "title": "Solo Leveling",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "tr",
+     "traits": [
+      "alternative"
+     ],
+     "title": "Tek başına seviye atlama",
+     "note": null,
+     "is_primary": false
+    },
+    {
+     "language": "vi",
+     "traits": [],
+     "title": "Tôi Thăng Cấp Một Mình",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "pt-br",
+     "traits": [
+      "alternative"
+     ],
+     "title": "Upando sozinho",
+     "note": null,
+     "is_primary": false
+    },
+    {
+     "language": "tr",
+     "traits": [
+      "alternative"
+     ],
+     "title": "Yalnız Seviye Atlama",
+     "note": null,
+     "is_primary": false
+    },
+    {
+     "language": "ru",
+     "traits": [],
+     "title": "Вебтун. Поднятие уровня в одиночку. Solo Leveling",
+     "note": null,
+     "is_primary": false
+    },
+    {
+     "language": "ru",
+     "traits": [],
+     "title": "Поднятие уровня в одиночку",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "uk",
+     "traits": [],
+     "title": "Тільки я візьму новий рівень",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "ka",
+     "traits": [],
+     "title": "სოლო ლეველინგი",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "he",
+     "traits": [],
+     "title": "שחקן בודד",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "ar",
+     "traits": [],
+     "title": "الإرتقاء بالمستوى منفردًا",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "fa",
+     "traits": [],
+     "title": "تکرو",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "fa",
+     "traits": [],
+     "title": "سولو لولینگ",
+     "note": null,
+     "is_primary": false
+    },
+    {
+     "language": "ar",
+     "traits": [],
+     "title": "سولو ليفيلنغ",
+     "note": null,
+     "is_primary": false
+    },
+    {
+     "language": "hi",
+     "traits": [],
+     "title": "केवल मैं स्तर बढ़ाता हूं",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "ne",
+     "traits": [],
+     "title": "सोलो लेभलिङ",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "hi",
+     "traits": [],
+     "title": "सोलो लेवलिंग",
+     "note": null,
+     "is_primary": false
+    },
+    {
+     "language": "bn",
+     "traits": [],
+     "title": "সোলো লেভেলিং",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "ta",
+     "traits": [],
+     "title": "சோலோ லெவெலிங்",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "ja",
+     "traits": [
+      "native"
+     ],
+     "title": "俺だけレベルアップな件",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "ja",
+     "traits": [],
+     "title": "俺だけレベルアップな件〜外伝〜",
+     "note": null,
+     "is_primary": false
+    },
+    {
+     "language": "zh",
+     "traits": [],
+     "title": "我独自升级",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "zh-Hant",
+     "traits": [],
+     "title": "我獨自升級",
+     "note": null,
+     "is_primary": true
+    }
+   ],
+   "genres": [
+    "action",
+    "adventure",
+    "fantasy",
+    "drama",
+    "shounen"
+   ],
+   "tags": [
+    "Adult Male Lead",
+    "Based on a Novel",
+    "Politics",
+    "Invincible Protagonist",
+    "Adapted to Game"
+   ],
+   "relationships": {
+    "sequel": [
+     1252
+    ]
+   },
+   "source": {
+    "anilist": {
+     "id": 105398
+    },
+    "anime_planet": {
+     "id": "solo-leveling"
+    },
+    "anime_news_network": {
+     "id": 25998
+    },
+    "kitsu": {
+     "id": 54114
+    },
+    "manga_updates": {
+     "id": "6z1uqw7"
+    },
+    "my_anime_list": {
+     "id": 121496
+    },
+    "shikimori": {
+     "id": 121496
+    }
+   }
+  },
+  {
+   "id": 85266,
+   "state": "active",
+   "merged_with": null,
+   "canonical_url": "https://mangabaka.org/novel/85266/Solo-Leveling",
+   "title": "Solo Leveling",
+   "native_title": "나 혼자만 레벨업",
+   "romanized_title": "Na Honjaman Level Up",
+   "cover": {
+    "raw": {
+     "url": "https://images.mangabaka.dev/6/7/2/a/0/c/f/2/01b3/4137/ab76/b583e9452de6"
+    }
+   },
+   "authors": [
+    "Chugong"
+   ],
+   "artists": null,
+   "description": "**THE WEAKEST HUNTER OF ALL MANKIND!**",
+   "year": 2016,
+   "published": {
+    "start_date": "2016-11-04",
+    "end_date": "2017-10-27",
+    "start_date_is_estimated": false,
+    "end_date_is_estimated": false
+   },
+   "status": "completed",
+   "content_rating": "safe",
+   "type": "novel",
+   "original_language": "ko",
+   "final_volume": "14",
+   "total_chapters": "270",
+   "titles": [
+    {
+     "language": "ko",
+     "traits": [
+      "native"
+     ],
+     "title": "나 혼자만 레벨업",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "ko-Latn",
+     "traits": [
+      "native"
+     ],
+     "title": "Na Honjaman Level Up",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "en",
+     "traits": [],
+     "title": "Only I Level Up",
+     "note": null,
+     "is_primary": false
+    },
+    {
+     "language": "ja-Latn",
+     "traits": [
+      "official"
+     ],
+     "title": "Ore Dake Level Up na Ken",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "en",
+     "traits": [
+      "official"
+     ],
+     "title": "Solo Leveling",
+     "note": "Yen Press",
+     "is_primary": true
+    },
+    {
+     "language": "ru",
+     "traits": [],
+     "title": "Поднятие уровня в одиночку",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "ja",
+     "traits": [
+      "official"
+     ],
+     "title": "俺だけレベルアップな件",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "zh-Hant",
+     "traits": [],
+     "title": "我獨自升級",
+     "note": null,
+     "is_primary": true
+    }
+   ],
+   "genres": [
+    "action",
+    "adventure",
+    "drama",
+    "fantasy",
+    "shounen"
+   ],
+   "tags": [
+    "Adapted to Game",
+    "Dungeon",
+    "Smart Male Lead",
+    "Game Elements",
+    "Level System"
+   ],
+   "relationships": {
+    "sequel": [
+     85267
+    ],
+    "spin_off": [
+     3397
+    ]
+   },
+   "source": {
+    "anilist": {
+     "id": null
+    },
+    "anime_planet": {
+     "id": "only-i-level-up-novel"
+    },
+    "anime_news_network": {
+     "id": 32926
+    },
+    "kitsu": {
+     "id": 56076
+    },
+    "manga_updates": {
+     "id": "621v4gu"
+    },
+    "my_anime_list": {
+     "id": 119184
+    },
+    "shikimori": {
+     "id": 119184
+    }
+   }
+  },
+  {
+   "id": 1252,
+   "state": "active",
+   "merged_with": null,
+   "canonical_url": "https://mangabaka.org/manhwa/1252/Solo-Leveling-Ragnarok",
+   "title": "Solo Leveling: Ragnarok",
+   "native_title": "나 혼자만 레벨업 : 라그나로크",
+   "romanized_title": "Na Honjaman Level Up: Ragnarok",
+   "cover": {
+    "raw": {
+     "url": "https://images.mangabaka.dev/8/4/c/8/a/0/9/b/4b95/4aa1/9b7d/edf785410cff"
+    }
+   },
+   "authors": [
+    "Daul",
+    "Do Dang"
+   ],
+   "artists": [
+    "JIN",
+    "REDICE"
+   ],
+   "description": "In a world of gates, monsters, and hunters galore, Soo-Ho Sung is…well, he’s just an ordinary college student. Sure, his parents went missing right before the gates started appearing three years ago, and he occasionally had a weird dream where he could beat up monsters and level up like a video game",
+   "year": 2024,
+   "published": {
+    "start_date": "2024-07-31",
+    "end_date": null,
+    "start_date_is_estimated": false,
+    "end_date_is_estimated": null
+   },
+   "status": "hiatus",
+   "content_rating": "safe",
+   "type": "manhwa",
+   "original_language": "ko",
+   "final_volume": "3",
+   "total_chapters": "68",
+   "titles": [
+    {
+     "language": "ko",
+     "traits": [
+      "native"
+     ],
+     "title": "나 혼자만 레벨업 : 라그나로크",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "en",
+     "traits": [],
+     "title": "I Alone Level Up: Ragnarok",
+     "note": null,
+     "is_primary": false
+    },
+    {
+     "language": "ko-Latn",
+     "traits": [
+      "native"
+     ],
+     "title": "Na Honjaman Level Up: Ragnarok",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "ko-Latn",
+     "traits": [],
+     "title": "Na Honjaman Rebereop: Ragnarok",
+     "note": null,
+     "is_primary": false
+    },
+    {
+     "language": "en",
+     "traits": [],
+     "title": "Only I Level Up: Ragnarok",
+     "note": null,
+     "is_primary": false
+    },
+    {
+     "language": "ja-Latn",
+     "traits": [],
+     "title": "Ore dake Level Up na Ken: Ragnarok",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "de",
+     "traits": [
+      "official"
+     ],
+     "title": "solo leveling: ragnarok",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "fr",
+     "traits": [
+      "official"
+     ],
+     "title": "Solo Leveling: Ragnarok",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "pt",
+     "traits": [
+      "official"
+     ],
+     "title": "Solo Leveling: Ragnarok",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "en",
+     "traits": [
+      "official"
+     ],
+     "title": "Solo Leveling: Ragnarok",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "es-la",
+     "traits": [
+      "official"
+     ],
+     "title": "Solo Leveling: Ragnarok",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "es",
+     "traits": [
+      "official"
+     ],
+     "title": "Solo Leveling: Ragnarok",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "pt-br",
+     "traits": [],
+     "title": "Upando Sozinho: Ragnarok",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "ru",
+     "traits": [],
+     "title": "Поднятие уровня в одиночку: Рагнарёк",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "ja",
+     "traits": [],
+     "title": "俺だけレベルアップな件〜ラグナロク〜",
+     "note": null,
+     "is_primary": true
+    },
+    {
+     "language": "zh",
+     "traits": [
+      "official"
+     ],
+     "title": "我独自升级 : 诸神黄昏",
+     "note": null,
+     "is_primary": true
+    }
+   ],
+   "genres": [
+    "action",
+    "adventure",
+    "fantasy",
+    "comedy",
+    "drama",
+    "school_life",
+    "shounen"
+   ],
+   "tags": [
+    "Game Elements",
+    "Swordplay",
+    "Male Protagonist",
+    "Long Strip",
+    "Ranking System"
+   ],
+   "relationships": {
+    "prequel": [
+     3397
+    ]
+   },
+   "source": {
+    "anilist": {
+     "id": 179445
+    },
+    "anime_planet": {
+     "id": "solo-leveling-ragnarok"
+    },
+    "anime_news_network": {
+     "id": 32925
+    },
+    "kitsu": {
+     "id": 72544
+    },
+    "manga_updates": {
+     "id": "m13i58t"
+    },
+    "my_anime_list": {
+     "id": 172429
+    },
+    "shikimori": {
+     "id": 172429
+    }
+   }
+  }
+ ]
+}

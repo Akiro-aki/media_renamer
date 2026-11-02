@@ -55,15 +55,20 @@ impl Xml {
     }
 }
 
+/// One `<uniqueid>` per known id; the matched source's is the default.
 fn unique_id(x: &mut Xml, c: &Candidate) {
-    if c.id.is_empty() || c.source() == Source::Local {
-        return;
+    if !c.id.is_empty() && c.source() != Source::Local {
+        x.raw(&format!(
+            "<uniqueid type=\"{}\" default=\"true\">{}</uniqueid>",
+            c.source(),
+            escape(&c.id)
+        ));
     }
-    x.raw(&format!(
-        "<uniqueid type=\"{}\" default=\"true\">{}</uniqueid>",
-        c.source(),
-        escape(&c.id)
-    ));
+    for (source, id) in &c.ext_ids {
+        if *source != c.source() && !id.is_empty() {
+            x.raw(&format!("<uniqueid type=\"{source}\">{}</uniqueid>", escape(id)));
+        }
+    }
 }
 
 fn genres(x: &mut Xml, c: &Candidate) {
@@ -125,5 +130,19 @@ mod tests {
         assert!(s.contains("<genre>Science Fiction</genre>"));
         assert!(!s.contains("<plot>"));
         assert!(s.trim_end().ends_with("</movie>"));
+    }
+
+    #[test]
+    fn cross_site_ids() {
+        let c = Candidate {
+            source: Some(Source::Anilist),
+            id: "154587".into(),
+            title: "Sousou no Frieren".into(),
+            ext_ids: [(Source::Mal, "52991".to_string())].into_iter().collect(),
+            ..Default::default()
+        };
+        let s = tvshow(&c);
+        assert!(s.contains("<uniqueid type=\"anilist\" default=\"true\">154587</uniqueid>"), "{s}");
+        assert!(s.contains("<uniqueid type=\"mal\">52991</uniqueid>"), "{s}");
     }
 }

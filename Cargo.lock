@@ -2518,6 +2518,7 @@ dependencies = [
  "async-trait",
  "directories",
  "futures",
+ "libc",
  "regex",
  "reqwest",
  "rusqlite",

@@ -92,8 +92,12 @@ pub fn undo(batch: Option<i64>, force: bool, yes: bool) -> Result<ExitCode> {
         println!("Batch #{id} has nothing left to undo.");
         return Ok(ExitCode::SUCCESS);
     }
-    let restores = pending.iter().filter(|o| o.kind == OpKind::Move).count();
-    let removes = pending.len() - restores;
+    let count = |f: fn(&OpKind) -> bool| pending.iter().filter(|o| f(&o.kind)).count();
+    let restores = count(|k| *k == OpKind::Move);
+    let embeds = count(|k| *k == OpKind::Embed);
+    let covers = count(|k| *k == OpKind::Cover);
+    let removes = pending.len() - restores - embeds - covers;
+    let replaced = pending.iter().filter(|o| o.backup.is_some()).count();
     let mut summary = Vec::new();
     if restores > 0 {
         summary.push(format!("move {restores} file(s) back"));
@@ -101,7 +105,16 @@ pub fn undo(batch: Option<i64>, force: bool, yes: bool) -> Result<ExitCode> {
     if removes > 0 {
         summary.push(format!("delete {removes} created file(s)/link(s)"));
     }
-    println!("Undo batch #{id}: {}", summary.join(" and "));
+    if replaced > 0 {
+        summary.push(format!("restore {replaced} replaced file(s) from the trash"));
+    }
+    if embeds > 0 {
+        summary.push(format!("revert ComicInfo.xml in {embeds} archive(s)"));
+    }
+    if covers > 0 {
+        summary.push(format!("remove the cover added to {covers} archive(s)"));
+    }
+    println!("Undo batch #{id}: {}", summary.join(", "));
 
     if !yes {
         if !ui::interactive_terminal() {

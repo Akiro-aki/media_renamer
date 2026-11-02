@@ -1,8 +1,11 @@
-//! Metadata providers: TMDB, AniList, MangaDex, ComicVine.
+//! Metadata providers: TMDB, AniList, MAL (through Jikan), MangaBaka,
+//! MangaDex, ComicVine.
 
 pub mod anilist;
 pub mod comicvine;
 pub mod http;
+pub mod mal;
+pub mod mangabaka;
 pub mod mangadex;
 pub mod tmdb;
 
@@ -14,9 +17,10 @@ use std::sync::Arc;
 use anyhow::{Result, bail};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::MediaKind;
-use crate::config::Config;
+use crate::config::{Config, ProviderOrder};
 pub use http::Http;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -24,7 +28,12 @@ pub use http::Http;
 pub enum Source {
     Tmdb,
     Anilist,
+    #[serde(alias = "myanimelist")]
+    Mal,
     Mangadex,
+    #[serde(alias = "mb")]
+    Mangabaka,
+    #[serde(alias = "cv")]
     Comicvine,
     /// No lookup: names come from the parsed filename (`--offline`).
     Local,
@@ -35,10 +44,29 @@ impl Source {
         match self {
             Source::Tmdb => "tmdb",
             Source::Anilist => "anilist",
+            Source::Mal => "mal",
             Source::Mangadex => "mangadex",
+            Source::Mangabaka => "mangabaka",
             Source::Comicvine => "comicvine",
             Source::Local => "local",
         }
+    }
+
+    /// Whether this source can be searched for `kind`.
+    pub fn searches(self, kind: MediaKind) -> bool {
+        use MediaKind::*;
+        match self {
+            Source::Tmdb => matches!(kind, Movie | Tv),
+            Source::Anilist | Source::Mal => matches!(kind, Anime | Manga),
+            Source::Mangadex | Source::Mangabaka => kind == Manga,
+            Source::Comicvine => kind == Comic,
+            Source::Local => false,
+        }
+    }
+
+    /// Whether this source can supply anime episode titles.
+    pub fn lists_anime_episodes(self) -> bool {
+        matches!(self, Source::Tmdb | Source::Mal)
     }
 }
 
@@ -54,9 +82,13 @@ impl FromStr for Source {
         match s.to_ascii_lowercase().as_str() {
             "tmdb" => Ok(Source::Tmdb),
             "anilist" => Ok(Source::Anilist),
+            "mal" | "myanimelist" => Ok(Source::Mal),
             "mangadex" => Ok(Source::Mangadex),
+            "mangabaka" | "mb" => Ok(Source::Mangabaka),
             "comicvine" | "cv" => Ok(Source::Comicvine),
-            o => Err(format!("unknown source '{o}' (tmdb, anilist, mangadex, comicvine)")),
+            o => Err(format!(
+                "unknown source '{o}' (tmdb, anilist, mal, mangadex, mangabaka, comicvine)"
+            )),
         }
     }
 }
@@ -103,11 +135,23 @@ pub struct Candidate {
     /// English title, if different (used to cross-reference TMDB for anime).
     pub english_title: Option<String>,
     pub url: Option<String>,
+    /// The same entry on other sites (e.g. AniList's `idMal`).
+    pub ext_ids: BTreeMap<Source, String>,
 }
 
 impl Candidate {
     pub fn source(&self) -> Source {
         self.source.unwrap_or(Source::Local)
+    }
+
+    /// This entry's id on `source`: its own id if it came from there,
+    /// otherwise a cross-site id.
+    pub fn id_for(&self, source: Source) -> Option<&str> {
+        if self.source() == source && !self.id.is_empty() {
+            Some(&self.id)
+        } else {
+            self.ext_ids.get(&source).map(String::as_str)
+        }
     }
 
     /// `Title (Year)` for display.
@@ -135,6 +179,9 @@ pub struct Episode {
 pub struct SeriesInfo {
     pub episodes: Vec<Episode>,
     pub season_posters: BTreeMap<u32, String>,
+    /// The list covers one AniList/MAL-style entry: a single season, numbered
+    /// from 1. Only files without a season or with season 1 use it.
+    pub single_entry: bool,
 }
 
 impl SeriesInfo {
@@ -155,6 +202,34 @@ impl SeriesInfo {
     }
 }
 
+/// Cover images per volume of a manga, for embedding or sidecars.
+#[derive(Debug, Clone, Default)]
+pub struct VolumeCovers {
+    /// Volume number (normalised, `"1"`, `"7.5"`) → image URL.
+    pub volumes: BTreeMap<String, String>,
+    /// Chapter number → the volume it belongs to, for chapter files.
+    pub chapter_volumes: BTreeMap<String, String>,
+}
+
+impl VolumeCovers {
+    /// `"01"`, `"1.0"` → `"1"`; `None` for anything that isn't a number.
+    pub fn key(n: &str) -> Option<String> {
+        let v: f64 = n.trim().parse().ok()?;
+        (v.is_finite() && v >= 0.0).then(|| crate::format::template::format_number(v, 0))
+    }
+
+    /// The cover for a book numbered `volume` and/or `chapter`.
+    pub fn for_book(&self, volume: Option<f64>, chapter: Option<f64>) -> Option<&str> {
+        let fmt = |n: f64| crate::format::template::format_number(n, 0);
+        let vol = match (volume, chapter) {
+            (Some(v), _) => fmt(v),
+            (None, Some(c)) => self.chapter_volumes.get(&fmt(c))?.clone(),
+            (None, None) => return None,
+        };
+        self.volumes.get(&vol).map(String::as_str)
+    }
+}
+
 /// One comic issue.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct Issue {
@@ -163,6 +238,70 @@ pub struct Issue {
     pub cover_date: Option<String>,
     pub cover: Option<String>,
     pub summary: Option<String>,
+}
+
+/// A creator role that ComicInfo.xml has an element for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum Role {
+    Writer,
+    Penciller,
+}
+
+/// Series metadata for ComicInfo.xml (tags, creators, totals), fetched once
+/// per matched book series and only when ComicInfo is written.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct BookDetails {
+    pub tags: Vec<String>,
+    pub genres: Vec<String>,
+    pub credits: Vec<(Role, String)>,
+    /// Totals, set only when the series is finished (ComicInfo `Count`).
+    pub total_volumes: Option<u32>,
+    pub total_chapters: Option<u32>,
+    /// A ComicInfo `AgeRating` value that Kavita and Komga both know.
+    pub age_rating: Option<&'static str>,
+}
+
+impl BookDetails {
+    /// Add a credit unless that person already has the role.
+    pub fn credit(&mut self, role: Role, name: &str) {
+        let name = name.trim();
+        if !name.is_empty() && !self.credits.iter().any(|(r, n)| *r == role && n == name) {
+            self.credits.push((role, name.to_string()));
+        }
+    }
+
+    pub fn names(&self, role: Role) -> Vec<&str> {
+        self.credits
+            .iter()
+            .filter(|(r, _)| *r == role)
+            .map(|(_, n)| n.as_str())
+            .collect()
+    }
+}
+
+/// At most this many tags go into ComicInfo; providers list them most
+/// relevant first.
+pub(crate) const MAX_TAGS: usize = 15;
+
+/// MangaDex/MangaBaka `content_rating` → ComicInfo `AgeRating`.
+pub(crate) fn age_rating_for(content_rating: &str) -> Option<&'static str> {
+    match content_rating {
+        "safe" => Some("Everyone"),
+        "suggestive" => Some("Teen"),
+        "erotica" => Some("Mature 17+"),
+        "pornographic" => Some("Adults Only 18+"),
+        _ => None,
+    }
+}
+
+/// A positive whole number from a JSON string or number (`"15"`, `15`, `"15.0"`).
+pub(crate) fn whole_number(v: &Value) -> Option<u32> {
+    let n = match v {
+        Value::Number(n) => n.as_f64()?,
+        Value::String(s) => s.trim().parse::<f64>().ok()?,
+        _ => return None,
+    };
+    (n >= 1.0 && n.fract() == 0.0 && n <= f64::from(u32::MAX)).then_some(n as u32)
 }
 
 #[async_trait]
@@ -182,6 +321,11 @@ pub trait Provider: Send + Sync {
     async fn issue(&self, _candidate: &Candidate, _number: f64) -> Result<Option<Issue>> {
         Ok(None)
     }
+
+    /// Tags, creators and totals for ComicInfo. Empty for providers without them.
+    async fn book_details(&self, _candidate: &Candidate) -> Result<BookDetails> {
+        Ok(BookDetails::default())
+    }
 }
 
 /// All configured providers.
@@ -189,6 +333,8 @@ pub trait Provider: Send + Sync {
 pub struct Providers {
     pub tmdb: Option<Arc<tmdb::Tmdb>>,
     pub anilist: Arc<anilist::Anilist>,
+    pub mal: Arc<mal::Mal>,
+    pub mangabaka: Arc<mangabaka::Mangabaka>,
     pub mangadex: Arc<mangadex::Mangadex>,
     pub comicvine: Option<Arc<comicvine::ComicVine>>,
 }
@@ -207,6 +353,11 @@ impl Providers {
                 http.clone(),
                 config.general.anime_title,
             )),
+            mal: Arc::new(mal::Mal::new(http.clone(), config.general.anime_title)),
+            mangabaka: Arc::new(mangabaka::Mangabaka::new(
+                http.clone(),
+                config.general.anime_title,
+            )),
             mangadex: Arc::new(mangadex::Mangadex::new(http.clone())),
             comicvine: config
                 .api
@@ -216,27 +367,29 @@ impl Providers {
         }
     }
 
-    /// Providers to search for a kind, in priority order.
-    pub fn for_kind(&self, kind: MediaKind) -> Vec<Arc<dyn Provider>> {
-        let mut v: Vec<Arc<dyn Provider>> = Vec::new();
-        match kind {
-            MediaKind::Movie | MediaKind::Tv => {
-                if let Some(t) = &self.tmdb {
-                    v.push(t.clone());
-                }
-            }
-            MediaKind::Anime => v.push(self.anilist.clone()),
-            MediaKind::Manga => {
-                v.push(self.anilist.clone());
-                v.push(self.mangadex.clone());
-            }
-            MediaKind::Comic => {
-                if let Some(c) = &self.comicvine {
-                    v.push(c.clone());
-                }
-            }
+    /// The provider for `source`, if it is available (keyed sources need their key).
+    pub fn get(&self, source: Source) -> Option<Arc<dyn Provider>> {
+        match source {
+            Source::Tmdb => self.tmdb.clone().map(|p| p as Arc<dyn Provider>),
+            Source::Anilist => Some(self.anilist.clone()),
+            Source::Mal => Some(self.mal.clone()),
+            Source::Mangabaka => Some(self.mangabaka.clone()),
+            Source::Mangadex => Some(self.mangadex.clone()),
+            Source::Comicvine => self.comicvine.clone().map(|p| p as Arc<dyn Provider>),
+            Source::Local => None,
         }
-        v
+    }
+
+    /// Providers to search for a kind, in priority order. Anime and manga
+    /// follow `order`; unavailable sources are skipped.
+    pub fn for_kind(&self, kind: MediaKind, order: &ProviderOrder) -> Vec<Arc<dyn Provider>> {
+        let sources: &[Source] = match kind {
+            MediaKind::Movie | MediaKind::Tv => &[Source::Tmdb],
+            MediaKind::Comic => &[Source::Comicvine],
+            MediaKind::Anime => &order.anime,
+            MediaKind::Manga => &order.manga,
+        };
+        sources.iter().filter_map(|&s| self.get(s)).collect()
     }
 
     pub fn by_source(&self, source: Source) -> Result<Arc<dyn Provider>> {
@@ -247,6 +400,8 @@ impl Providers {
             },
             Source::Anilist => self.anilist.clone(),
             Source::Mangadex => self.mangadex.clone(),
+            Source::Mal => self.mal.clone(),
+            Source::Mangabaka => self.mangabaka.clone(),
             Source::Comicvine => match &self.comicvine {
                 Some(c) => c.clone(),
                 None => bail!(

@@ -10,12 +10,14 @@ use mrn_core::pipeline::{Choice, ChoiceRequest, Chooser, Engine, Options, SkipUn
 use mrn_core::providers::anilist::Anilist;
 use mrn_core::providers::comicvine::ComicVine;
 use mrn_core::providers::http::{Http, HttpOptions};
+use mrn_core::providers::mal::Mal;
+use mrn_core::providers::mangabaka::Mangabaka;
 use mrn_core::providers::mangadex::Mangadex;
 use mrn_core::providers::tmdb::Tmdb;
-use mrn_core::providers::Providers;
+use mrn_core::providers::{Providers, Source};
 use mrn_core::scan::scan;
 use serde_json::json;
-use wiremock::matchers::{method, path, query_param};
+use wiremock::matchers::{body_partial_json, body_string_contains, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 async fn mock(server: &MockServer, p: &str, q: Option<(&str, &str)>, body: serde_json::Value) {
@@ -70,7 +72,7 @@ async fn mock_tmdb(server: &MockServer) {
     Mock::given(method("POST"))
         .and(path("/graphql"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {"Page": {"media": [{
-            "id": 154587, "seasonYear": 2023,
+            "id": 154587, "idMal": 52991, "seasonYear": 2023,
             "title": {"romaji": "Sousou no Frieren", "english": "Frieren: Beyond Journey's End"},
             "synonyms": ["Frieren"]
         }]}}})))
@@ -79,17 +81,33 @@ async fn mock_tmdb(server: &MockServer) {
 }
 
 fn engine(server: &MockServer) -> Engine {
+    engine_with(server, true)
+}
+
+/// Every provider points at `server`; Jikan lives under `/jikan`, MangaBaka under `/mangabaka`.
+fn engine_with(server: &MockServer, tmdb_key: bool) -> Engine {
     let config = Config::default();
     let http = Arc::new(Http::new(HttpOptions::default()).unwrap());
     let providers = Providers {
-        tmdb: Some(Arc::new(
-            Tmdb::new(http.clone(), "key".into(), "en-US".into()).with_base_url(server.uri()),
-        )),
+        tmdb: tmdb_key.then(|| {
+            Arc::new(Tmdb::new(http.clone(), "key".into(), "en-US".into()).with_base_url(server.uri()))
+        }),
         anilist: Arc::new(
             Anilist::new(http.clone(), Default::default())
                 .with_base_url(format!("{}/graphql", server.uri())),
         ),
-        mangadex: Arc::new(Mangadex::new(http.clone()).with_base_url(server.uri())),
+        mal: Arc::new(
+            Mal::new(http.clone(), Default::default()).with_base_url(format!("{}/jikan", server.uri())),
+        ),
+        mangabaka: Arc::new(
+            Mangabaka::new(http.clone(), Default::default())
+                .with_base_url(format!("{}/mangabaka", server.uri())),
+        ),
+        mangadex: Arc::new(
+            Mangadex::new(http.clone())
+                .with_base_url(server.uri())
+                .with_covers_url(format!("{}/covers", server.uri())),
+        ),
         comicvine: Some(Arc::new(
             ComicVine::new(http.clone(), "key".into()).with_base_url(server.uri()),
         )),
@@ -126,8 +144,7 @@ async fn tv_movie_anime_end_to_end_with_undo() {
     opts.interactive = false;
     opts.extras = Extras {
         nfo: true,
-        artwork: false,
-        comicinfo: false,
+        ..Default::default()
     };
 
     let files = scan(std::slice::from_ref(&input), true).unwrap().files;
@@ -244,4 +261,473 @@ async fn forced_id_and_offline() {
         "some random name.mkv"
     );
     assert!(a.items[0].matched.is_none());
+}
+
+/// Target file names for `files` in `dir`, renamed in place.
+async fn names(engine: &Engine, opts: &Options, dir: &Path) -> Vec<String> {
+    let files = scan(&[dir.to_path_buf()], true).unwrap().files;
+    let analysis = engine
+        .analyze(files, opts, &mut SkipUncertain, &|_| {})
+        .await
+        .unwrap();
+    analysis
+        .items
+        .iter()
+        .map(|i| match &i.target {
+            Ok(t) => t.file_name().unwrap().to_string_lossy().into_owned(),
+            Err(e) => format!("ERR {e}"),
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn provider_order_and_cross_site_ids() {
+    let server = MockServer::start().await;
+    mock_tmdb(&server).await;
+    mock(&server, "/manga", Some(("title", "Chainsaw Man")), json!({"data": [{
+        "id": "a77742b1",
+        "attributes": {"title": {"en": "Chainsaw Man"}, "year": 2018,
+                       "links": {"al": "105778", "mal": "116778"}},
+        "relationships": []
+    }]}))
+    .await;
+    let engine = engine(&server);
+    let d = tempfile::tempdir().unwrap();
+
+    // Anime: {malid} comes from AniList's idMal; titles follow anime_episodes.
+    let anime = d.path().join("anime");
+    touch(&anime, "[SubsPlease] Sousou no Frieren - 12 (1080p).mkv");
+    let mut opts = Options::from_config(&engine.config);
+    opts.interactive = false;
+    opts.format = Some(r"{n} \[{malid}\][ - {t}]".into());
+    assert_eq!(names(&engine, &opts, &anime).await, ["Sousou no Frieren [52991] - A Real Hero.mkv"]);
+    opts.providers.anime_episodes.clear();
+    assert_eq!(names(&engine, &opts, &anime).await, ["Sousou no Frieren [52991].mkv"]);
+
+    // Manga: MangaDex first means AniList is never asked.
+    let manga = d.path().join("manga");
+    touch(&manga, "Chainsaw Man v01.cbz");
+    opts.kind = Some(mrn_core::MediaKind::Manga);
+    opts.format = Some(r"{n} \[{source} {anilistid} {malid}\]".into());
+    opts.providers.manga = vec![Source::Mangadex];
+    let graphql_calls = || async {
+        let reqs = server.received_requests().await.unwrap();
+        reqs.iter().filter(|r| r.url.path() == "/graphql").count()
+    };
+    let before = graphql_calls().await;
+    assert_eq!(names(&engine, &opts, &manga).await, ["Chainsaw Man [mangadex 105778 116778].cbz"]);
+    assert_eq!(graphql_calls().await, before, "AniList was searched");
+}
+
+#[tokio::test]
+async fn manga_search_falls_back_to_mangabaka() {
+    let server = MockServer::start().await;
+    // AniList knows nothing; MangaBaka has the manhwa (a trimmed real response).
+    Mock::given(method("POST"))
+        .and(path("/graphql"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {"Page": {"media": []}}})))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/mangabaka/series/search"))
+        .and(query_param("q", "Solo Leveling"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_raw(include_str!("fixtures/mangabaka_search.json"), "application/json"),
+        )
+        .mount(&server)
+        .await;
+    let engine = engine(&server);
+    let d = tempfile::tempdir().unwrap();
+    let manga = d.path().join("manga");
+    touch(&manga, "Solo Leveling v01.cbz");
+    let mut opts = Options::from_config(&engine.config);
+    opts.interactive = false;
+    opts.kind = Some(mrn_core::MediaKind::Manga);
+    opts.format = Some(r"{n} v{vol:02} \[{source} {mangabakaid} {anilistid} {malid}\]".into());
+    assert_eq!(
+        names(&engine, &opts, &manga).await,
+        ["Na Honjaman Level Up v01 [mangabaka 3397 105398 121496].cbz"]
+    );
+    let reqs = server.received_requests().await.unwrap();
+    assert!(!reqs.iter().any(|r| r.url.path() == "/manga"), "MangaDex was searched");
+}
+
+#[tokio::test]
+async fn comicinfo_gets_tags_creators_and_count_then_undo() {
+    use std::io::{Read, Write};
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/graphql"))
+        .and(body_string_contains("SEARCH_MATCH"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {"Page": {"media": [{
+            "id": 105398, "idMal": 121496, "format": "MANGA", "startDate": {"year": 2018},
+            "title": {"romaji": "Na Honjaman Level Up", "english": "Solo Leveling"},
+            "genres": ["Action", "Adventure", "Fantasy"]
+        }]}}})))
+        .mount(&server)
+        .await;
+    // The details query: a trimmed real AniList response.
+    Mock::given(method("POST"))
+        .and(path("/graphql"))
+        .and(body_string_contains("isAdult"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(
+            include_str!("fixtures/anilist_book_details.json"),
+            "application/json",
+        ))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let engine = engine(&server);
+
+    let d = tempfile::tempdir().unwrap();
+    let input = d.path().join("in");
+    let lib = d.path().join("lib");
+    fs::create_dir_all(&input).unwrap();
+    for v in [1, 2] {
+        let mut z = zip::ZipWriter::new(fs::File::create(input.join(format!("Solo Leveling v{v:02}.cbz"))).unwrap());
+        z.start_file("001.jpg", zip::write::SimpleFileOptions::default()).unwrap();
+        z.write_all(b"jpeg").unwrap();
+        z.finish().unwrap();
+    }
+    let mut opts = Options::from_config(&engine.config);
+    opts.interactive = false;
+    opts.kind = Some(mrn_core::MediaKind::Manga);
+    opts.output = Some(lib.clone());
+    opts.format = Some("{n}/{n} v{vol:02}".into());
+    opts.extras.comicinfo = true;
+
+    let files = scan(std::slice::from_ref(&input), true).unwrap().files;
+    let analysis = engine.analyze(files, &opts, &mut SkipUncertain, &|_| {}).await.unwrap();
+    assert!(analysis.warnings.is_empty(), "{:?}", analysis.warnings);
+    let plan = engine.plan(&analysis, &opts);
+    let history = History::open(&d.path().join("history.db")).unwrap();
+    let report = engine
+        .execute(&analysis, &plan, &opts, &history, "test", &mut |_| {})
+        .await
+        .unwrap();
+    assert_eq!(report.failed, 0);
+
+    let cbz = lib.join("Na Honjaman Level Up/Na Honjaman Level Up v01.cbz");
+    let mut z = zip::ZipArchive::new(fs::File::open(&cbz).unwrap()).unwrap();
+    let mut xml = String::new();
+    z.by_name("ComicInfo.xml").unwrap().read_to_string(&mut xml).unwrap();
+    for want in [
+        "<Series>Na Honjaman Level Up</Series>",
+        "<LocalizedSeries>Solo Leveling</LocalizedSeries>",
+        "<Count>15</Count>",
+        "<Volume>1</Volume>",
+        "<Writer>So-Ryeong Gi, Hyeon-Gun, Chu-Gong</Writer>",
+        "<Penciller>Seong-Rak Jang, DISCIPLES</Penciller>",
+        "<Genre>Action, Adventure, Fantasy</Genre>",
+        "<Tags>Dungeon, Male Protagonist, Super Power,",
+    ] {
+        assert!(xml.contains(want), "{want} missing in\n{xml}");
+    }
+
+    let undo = history.undo(report.batch, false).unwrap();
+    assert!(undo.skipped.is_empty(), "{:?}", undo.skipped);
+    let mut z = zip::ZipArchive::new(fs::File::open(input.join("Solo Leveling v01.cbz")).unwrap()).unwrap();
+    assert!(z.by_name("ComicInfo.xml").is_err(), "ComicInfo removed on undo");
+}
+
+const CSM: &str = "a77742b1-befd-49a4-bff5-1ad4e6b0ef7b";
+const CSM_V1_COVER: &str = "59ade418-3590-4d7b-91b0-24c8feaa845f.png";
+
+/// Chainsaw Man matched on AniList, found on MangaDex by title (a decoy with
+/// the same title but another AniList id comes first), with real cover and
+/// aggregate responses. The volume 1 cover image is `PNGDATA`.
+async fn mock_chainsaw_covers(server: &MockServer) {
+    Mock::given(method("POST"))
+        .and(path("/graphql"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {"Page": {"media": [{
+            "id": 105778, "idMal": 116778, "format": "MANGA", "startDate": {"year": 2018},
+            "title": {"romaji": "Chainsaw Man", "english": "Chainsaw Man"}
+        }]}}})))
+        .mount(server)
+        .await;
+    mock(server, "/manga", Some(("title", "Chainsaw Man")), json!({"data": [
+        {"id": "decoy", "attributes": {"title": {"en": "Chainsaw Man"}, "year": 2018,
+                                       "links": {"al": "999"}}, "relationships": []},
+        {"id": CSM, "attributes": {"title": {"en": "Chainsaw Man"}, "year": 2018,
+                                   "links": {"al": "105778", "mal": "116778"}}, "relationships": []}
+    ]}))
+    .await;
+    for (p, body) in [
+        (format!("/manga/{CSM}"), include_str!("fixtures/mangadex_book_details.json")),
+        ("/cover".to_string(), include_str!("fixtures/mangadex_covers.json")),
+        (format!("/manga/{CSM}/aggregate"), include_str!("fixtures/mangadex_aggregate.json")),
+    ] {
+        Mock::given(method("GET"))
+            .and(path(p))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(body, "application/json"))
+            .mount(server)
+            .await;
+    }
+}
+
+fn write_cbz(path: &Path, entries: &[&str]) {
+    use std::io::Write;
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let mut z = zip::ZipWriter::new(fs::File::create(path).unwrap());
+    for e in entries {
+        z.start_file(*e, zip::write::SimpleFileOptions::default()).unwrap();
+        z.write_all(b"img").unwrap();
+    }
+    z.finish().unwrap();
+}
+
+fn entries(path: &Path) -> Vec<String> {
+    let z = zip::ZipArchive::new(fs::File::open(path).unwrap()).unwrap();
+    z.file_names().filter_map(|n| n.ok()).map(|n| n.to_string()).collect()
+}
+
+#[tokio::test]
+async fn kavita_covers_embedded_per_volume_then_undone() {
+    let server = MockServer::start().await;
+    mock_chainsaw_covers(&server).await;
+    // Volume 1 and chapter 5 (in volume 1) share one download.
+    Mock::given(method("GET"))
+        .and(path(format!("/covers/{CSM}/{CSM_V1_COVER}")))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(b"PNGDATA".to_vec()))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let engine = engine(&server);
+    let d = tempfile::tempdir().unwrap();
+    let input = d.path().join("in");
+    let lib = d.path().join("lib");
+    write_cbz(&input.join("Chainsaw Man v01.cbz"), &["001.jpg"]);
+    write_cbz(&input.join("Chainsaw Man c005.cbz"), &["001.jpg"]);
+    write_cbz(&input.join("Chainsaw Man v02.cbz"), &["cover.jpg", "001.jpg"]);
+
+    let mut opts = Options::from_config(&engine.config);
+    opts.interactive = false;
+    opts.kind = Some(mrn_core::MediaKind::Manga);
+    opts.output = Some(lib.clone());
+    opts.format = Some("{n}/{n}[ v{vol:02}][ c{ch:03}]".into());
+    opts.extras.embed_cover = true;
+    let files = scan(std::slice::from_ref(&input), true).unwrap().files;
+    let analysis = engine.analyze(files, &opts, &mut SkipUncertain, &|_| {}).await.unwrap();
+    assert!(analysis.warnings.is_empty(), "{:?}", analysis.warnings);
+    let plan = engine.plan(&analysis, &opts);
+    let history = History::open(&d.path().join("history.db")).unwrap();
+    let mut warnings = Vec::new();
+    let report = engine
+        .execute(&analysis, &plan, &opts, &history, "test", &mut |e| {
+            if let mrn_core::pipeline::ExecEvent::Warning(w) = e {
+                warnings.push(w);
+            }
+        })
+        .await
+        .unwrap();
+    assert_eq!(report.failed, 0);
+    assert!(warnings.is_empty(), "{warnings:?}");
+
+    let dir = lib.join("Chainsaw Man");
+    for f in ["Chainsaw Man v01.cbz", "Chainsaw Man c005.cbz"] {
+        assert_eq!(entries(&dir.join(f)), ["!cover.png", "001.jpg"], "{f}");
+    }
+    let mut z = zip::ZipArchive::new(fs::File::open(dir.join("Chainsaw Man v01.cbz")).unwrap()).unwrap();
+    let mut img = Vec::new();
+    std::io::Read::read_to_end(&mut z.by_name("!cover.png").unwrap(), &mut img).unwrap();
+    assert_eq!(img, b"PNGDATA");
+    // Already had a cover by Kavita's rule: left alone.
+    assert_eq!(entries(&dir.join("Chainsaw Man v02.cbz")), ["cover.jpg", "001.jpg"]);
+    assert!(!dir.join("Chainsaw Man v01.png").exists(), "no sidecar without -f komga --artwork");
+
+    let undo = history.undo(report.batch, false).unwrap();
+    assert!(undo.skipped.is_empty(), "{:?}", undo.skipped);
+    assert_eq!(entries(&input.join("Chainsaw Man v01.cbz")), ["001.jpg"]);
+    assert_eq!(entries(&input.join("Chainsaw Man c005.cbz")), ["001.jpg"]);
+}
+
+#[tokio::test]
+async fn komga_covers_saved_beside_books_then_undone() {
+    let server = MockServer::start().await;
+    mock_chainsaw_covers(&server).await;
+    Mock::given(method("GET"))
+        .and(path(format!("/covers/{CSM}/{CSM_V1_COVER}")))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(b"PNGDATA".to_vec()))
+        .mount(&server)
+        .await;
+    let engine = engine(&server);
+    let d = tempfile::tempdir().unwrap();
+    let input = d.path().join("in");
+    let lib = d.path().join("lib");
+    write_cbz(&input.join("Chainsaw Man v01.cbz"), &["001.jpg"]);
+    write_cbz(&input.join("Chainsaw Man c005.cbz"), &["001.jpg"]);
+    let dir = lib.join("Chainsaw Man");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("Chainsaw Man c005.png"), b"mine").unwrap();
+
+    let mut opts = Options::from_config(&engine.config);
+    opts.interactive = false;
+    opts.kind = Some(mrn_core::MediaKind::Manga);
+    opts.output = Some(lib.clone());
+    opts.format = Some("komga".into());
+    opts.extras.artwork = true;
+    let files = scan(std::slice::from_ref(&input), true).unwrap().files;
+    let analysis = engine.analyze(files, &opts, &mut SkipUncertain, &|_| {}).await.unwrap();
+    assert!(analysis.warnings.is_empty(), "{:?}", analysis.warnings);
+    let plan = engine.plan(&analysis, &opts);
+    let history = History::open(&d.path().join("history.db")).unwrap();
+    let report = engine
+        .execute(&analysis, &plan, &opts, &history, "test", &mut |_| {})
+        .await
+        .unwrap();
+    assert_eq!(report.failed, 0);
+
+    assert_eq!(fs::read(dir.join("Chainsaw Man v01.png")).unwrap(), b"PNGDATA");
+    assert_eq!(fs::read(dir.join("Chainsaw Man c005.png")).unwrap(), b"mine", "existing sidecar kept");
+    assert_eq!(entries(&dir.join("Chainsaw Man v01.cbz")), ["001.jpg"], "archive untouched");
+
+    let undo = history.undo(report.batch, false).unwrap();
+    assert!(undo.skipped.is_empty(), "{:?}", undo.skipped);
+    assert!(!dir.join("Chainsaw Man v01.png").exists());
+    assert_eq!(fs::read(dir.join("Chainsaw Man c005.png")).unwrap(), b"mine");
+}
+
+/// Jikan's episode list for Frieren (MAL 52991), one page.
+async fn mock_jikan_episodes(server: &MockServer) {
+    let eps: Vec<_> = (1..=28)
+        .map(|n| json!({"mal_id": n, "title": if n == 3 { "Killing Magic".to_string() } else { format!("MAL ep {n}") },
+                        "aired": "2023-10-06T00:00:00+00:00"}))
+        .collect();
+    mock(server, "/jikan/anime/52991/episodes", Some(("page", "1")), json!({
+        "pagination": {"last_visible_page": 1, "has_next_page": false}, "data": eps
+    }))
+    .await;
+}
+
+#[tokio::test]
+async fn anime_titles_from_mal_without_tmdb_key() {
+    let server = MockServer::start().await;
+    mock_tmdb(&server).await; // only AniList is reachable without a key
+    mock_jikan_episodes(&server).await;
+    let engine = engine_with(&server, false);
+    let d = tempfile::tempdir().unwrap();
+    let anime = d.path().join("anime");
+    touch(&anime, "[SubsPlease] Sousou no Frieren - 03 (1080p).mkv");
+    // Season-numbered names (detected as TV without a group tag, hence -t anime).
+    // A MAL list is one season: S02 most likely matched the wrong entry, so no title.
+    touch(&anime, "Sousou no Frieren S01E03.mkv");
+    touch(&anime, "Sousou no Frieren S02E03.mkv");
+    let mut opts = Options::from_config(&engine.config);
+    opts.interactive = false;
+    opts.kind = Some(mrn_core::MediaKind::Anime);
+    assert_eq!(
+        names(&engine, &opts, &anime).await,
+        [
+            "Sousou no Frieren - S01E03 - Killing Magic.mkv",
+            "Sousou no Frieren - S02E03.mkv",
+            "Sousou no Frieren - S01E03 - Killing Magic.mkv",
+        ]
+    );
+}
+
+#[tokio::test]
+async fn anime_episodes_order_picks_mal_first() {
+    let server = MockServer::start().await;
+    mock_tmdb(&server).await;
+    mock_jikan_episodes(&server).await;
+    let engine = engine(&server);
+    let d = tempfile::tempdir().unwrap();
+    let anime = d.path().join("anime");
+    touch(&anime, "[SubsPlease] Sousou no Frieren - 12 (1080p).mkv");
+    let mut opts = Options::from_config(&engine.config);
+    opts.interactive = false;
+    assert_eq!(names(&engine, &opts, &anime).await, ["Sousou no Frieren - S01E12 - A Real Hero.mkv"]);
+    opts.providers.anime_episodes = vec![Source::Mal, Source::Tmdb];
+    assert_eq!(names(&engine, &opts, &anime).await, ["Sousou no Frieren - S01E12 - MAL ep 12.mkv"]);
+}
+
+#[tokio::test]
+async fn anime_search_falls_back_to_mal() {
+    let server = MockServer::start().await;
+    // AniList knows nothing; MAL has the show.
+    Mock::given(method("POST"))
+        .and(path("/graphql"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {"Page": {"media": []}}})))
+        .mount(&server)
+        .await;
+    mock(&server, "/jikan/anime", Some(("q", "Sousou no Frieren")), json!({"data": [{
+        "mal_id": 52991, "titles": [{"type": "Default", "title": "Sousou no Frieren"}],
+        "type": "TV", "year": 2023
+    }]}))
+    .await;
+    mock_jikan_episodes(&server).await;
+    let engine = engine_with(&server, false);
+    let d = tempfile::tempdir().unwrap();
+    let anime = d.path().join("anime");
+    touch(&anime, "[SubsPlease] Sousou no Frieren - 03 (1080p).mkv");
+    let mut opts = Options::from_config(&engine.config);
+    opts.interactive = false;
+    opts.format = Some(r"{n} - {abs:02} - {t} \[{source}-{malid}\]".into());
+    assert_eq!(
+        names(&engine, &opts, &anime).await,
+        ["Sousou no Frieren - 03 - Killing Magic [mal-52991].mkv"]
+    );
+}
+
+/// AniList relations: Frieren season 1 (154587, MAL 52991) → season 2
+/// (182255, MAL 59978); and Jikan's 10 episodes of season 2.
+async fn mock_frieren_seasons(server: &MockServer) {
+    let node = |id: u64, mal: u64, title: &str| {
+        json!({"id": id, "idMal": mal, "type": "ANIME", "format": "TV", "episodes": null, "title": {"romaji": title}})
+    };
+    let s1 = node(154587, 52991, "Sousou no Frieren");
+    let s2 = node(182255, 59978, "Sousou no Frieren 2nd Season");
+    for (id, me, rel, other) in [(154587, &s1, "SEQUEL", &s2), (182255, &s2, "PREQUEL", &s1)] {
+        let mut media = me.clone();
+        media["relations"] = json!({"edges": [{"relationType": rel, "node": other}]});
+        Mock::given(method("POST"))
+            .and(path("/graphql"))
+            .and(body_string_contains("relations"))
+            .and(body_partial_json(json!({"variables": {"id": id}})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {"Media": media}})))
+            .with_priority(1)
+            .mount(server)
+            .await;
+    }
+    let eps: Vec<_> = (1..=10).map(|n| json!({"mal_id": n, "title": format!("Second {n}")})).collect();
+    mock(server, "/jikan/anime/59978/episodes", Some(("page", "1")), json!({
+        "pagination": {"has_next_page": false}, "data": eps
+    }))
+    .await;
+}
+
+#[tokio::test]
+async fn later_seasons_through_the_sequel_chain() {
+    let server = MockServer::start().await;
+    mock_tmdb(&server).await;
+    mock_jikan_episodes(&server).await;
+    mock_frieren_seasons(&server).await;
+    let d = tempfile::tempdir().unwrap();
+    let anime = d.path().join("anime");
+    // Each search finds season 1; the file names point at season 2.
+    touch(&anime, "Sousou no Frieren S02E03.mkv");
+    touch(&anime, "[SubsPlease] Sousou no Frieren - 31 (1080p).mkv");
+    touch(&anime, "[SubsPlease] Sousou no Frieren - 03 (1080p).mkv");
+
+    for tmdb_key in [false, true] {
+        let engine = engine_with(&server, tmdb_key);
+        let mut opts = Options::from_config(&engine.config);
+        opts.interactive = false;
+        opts.kind = Some(mrn_core::MediaKind::Anime);
+        opts.format = Some("{n} - {s00e00}[ - {t}]".into());
+        let got = names(&engine, &opts, &anime).await;
+        // With a key, TMDB names what it has (season 1 up to 12 here) and
+        // MAL fills in season 2.
+        let ep3 = if tmdb_key { "Ep 3" } else { "Killing Magic" };
+        assert_eq!(
+            got,
+            [
+                "Sousou no Frieren - S02E03 - Second 3.mkv".to_string(),
+                format!("Sousou no Frieren - S01E03 - {ep3}.mkv"),
+                "Sousou no Frieren - S02E03 - Second 3.mkv".to_string(),
+            ],
+            "tmdb key: {tmdb_key}"
+        );
+    }
 }

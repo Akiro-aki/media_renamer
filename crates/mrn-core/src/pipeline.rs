@@ -13,16 +13,19 @@ use futures::StreamExt;
 
 use crate::MediaKind;
 use crate::cache::Cache;
-use crate::config::{Config, Extras};
+use crate::config::{Config, Extras, ProviderOrder};
 use crate::detect::{detect, resolve_book_numbers};
-use crate::extras::{self, ExtraContent, ExtraContext, comicinfo};
-use crate::format::{Fields, Formatter};
+use crate::extras::{self, ExtraContent, ExtraContext, comicinfo, cover};
+use crate::format::{Fields, Formatter, presets};
 use crate::history::{History, OpKind};
 use crate::matcher::{self, Scored, normalize};
 use crate::ops::{self, Action, Conflict, FileOp, ItemStatus, PlanItem, Request};
 use crate::parse::{ParsedInfo, parse_path};
 use crate::providers::http::{Http, HttpOptions};
-use crate::providers::{Candidate, Episode, ForcedId, Issue, Provider, Providers, SeriesInfo, Source};
+use crate::providers::{
+    BookDetails, Candidate, Episode, ForcedId, Issue, Provider, Providers, SeriesInfo, Source,
+    VolumeCovers,
+};
 use crate::scan::MediaFile;
 
 /// Minimum similarity for using a TMDB show's episode list for an AniList entry.
@@ -51,6 +54,8 @@ pub struct Options {
     pub extras: Extras,
     /// Remove source folders left empty after moving.
     pub clean: bool,
+    /// Search order for anime and manga, and where anime episode titles come from.
+    pub providers: ProviderOrder,
 }
 
 impl Options {
@@ -68,6 +73,7 @@ impl Options {
             threshold: config.general.threshold,
             extras: config.extras.clone(),
             clean: false,
+            providers: config.providers.clone(),
         }
     }
 }
@@ -107,6 +113,10 @@ pub struct Match {
     pub candidate: Arc<Candidate>,
     pub score: f64,
     pub series: Option<Arc<SeriesInfo>>,
+    /// Tags, creators and totals for ComicInfo (books, only with `--comicinfo`).
+    pub book: Option<Arc<BookDetails>>,
+    /// Volume covers (manga, only when covers are embedded or saved beside books).
+    pub covers: Option<Arc<VolumeCovers>>,
 }
 
 /// One analyzed file.
@@ -291,12 +301,13 @@ impl Engine {
         }
 
         // 5. Episode lists for TV and anime.
-        let series_jobs: Vec<(usize, MediaKind, Arc<Candidate>)> = groups
+        let series_jobs: Vec<(usize, MediaKind, Arc<Candidate>, Vec<ParsedInfo>)> = groups
             .iter()
             .enumerate()
             .filter_map(|(gi, g)| match &states[gi] {
                 GroupState::Matched(m) if g.kind.is_video() && g.kind != MediaKind::Movie => {
-                    Some((gi, g.kind, m.candidate.clone()))
+                    let infos = g.members.iter().map(|&i| parsed[i].1.clone()).collect();
+                    Some((gi, g.kind, m.candidate.clone(), infos))
                 }
                 _ => None,
             })
@@ -305,8 +316,8 @@ impl Engine {
             status("Fetching episode lists…");
         }
         let series: Vec<(usize, Result<Option<SeriesInfo>>)> =
-            futures::stream::iter(series_jobs.into_iter().map(|(gi, kind, c)| async move {
-                (gi, self.series_for(kind, &c).await)
+            futures::stream::iter(series_jobs.into_iter().map(|(gi, kind, c, infos)| async move {
+                (gi, self.series_for(kind, &c, &opts.providers.anime_episodes, &infos).await)
             }))
             .buffer_unordered(concurrency)
             .collect()
@@ -336,6 +347,7 @@ impl Engine {
 
         // 7. Comic issue titles, only when something uses them.
         let want_issues = opts.extras.comicinfo
+            || self.wants_book_covers(opts)
             || formatters
                 .get(&MediaKind::Comic)
                 .is_some_and(|f| f.uses_field("t"));
@@ -379,7 +391,88 @@ impl Engine {
             }
         }
 
-        // 8. Name every file.
+        // 8. Series details (tags, creators, totals) for ComicInfo, once per series.
+        if opts.extras.comicinfo {
+            let jobs: Vec<(usize, Arc<Candidate>)> = groups
+                .iter()
+                .enumerate()
+                .filter_map(|(gi, g)| match &states[gi] {
+                    GroupState::Matched(m) if g.kind.is_book() => Some((gi, m.candidate.clone())),
+                    _ => None,
+                })
+                .collect();
+            if !jobs.is_empty() {
+                status("Fetching series details…");
+            }
+            let results: Vec<(usize, Result<BookDetails>)> =
+                futures::stream::iter(jobs.into_iter().map(|(gi, c)| async move {
+                    let r = match self.providers.by_source(c.source()) {
+                        Ok(p) => p.book_details(&c).await,
+                        Err(e) => Err(e),
+                    };
+                    (gi, r)
+                }))
+                .buffer_unordered(concurrency)
+                .collect()
+                .await;
+            for (gi, r) in results {
+                match r {
+                    Ok(d) => {
+                        if let GroupState::Matched(m) = &mut states[gi] {
+                            m.book = Some(Arc::new(d));
+                        }
+                    }
+                    Err(e) => warnings.push(format!(
+                        "could not fetch series details for '{}': {e:#}",
+                        groups[gi].query
+                    )),
+                }
+            }
+        }
+
+        // 9. Volume covers for manga, once per series.
+        if self.wants_book_covers(opts) {
+            let jobs: Vec<(usize, Arc<Candidate>, bool)> = groups
+                .iter()
+                .enumerate()
+                .filter_map(|(gi, g)| match &states[gi] {
+                    GroupState::Matched(m) if g.kind == MediaKind::Manga => {
+                        let chapters = g
+                            .members
+                            .iter()
+                            .any(|&i| parsed[i].1.volume.is_none() && parsed[i].1.chapter.is_some());
+                        Some((gi, m.candidate.clone(), chapters))
+                    }
+                    _ => None,
+                })
+                .collect();
+            if !jobs.is_empty() {
+                status("Fetching volume covers…");
+            }
+            let results: Vec<(usize, Result<Option<VolumeCovers>>)> =
+                futures::stream::iter(jobs.into_iter().map(|(gi, c, chapters)| async move {
+                    (gi, self.manga_covers(&c, chapters).await)
+                }))
+                .buffer_unordered(concurrency)
+                .collect()
+                .await;
+            for (gi, r) in results {
+                match r {
+                    Ok(Some(c)) => {
+                        if let GroupState::Matched(m) = &mut states[gi] {
+                            m.covers = Some(Arc::new(c));
+                        }
+                    }
+                    Ok(None) => tracing::info!("no volume covers found for '{}'", groups[gi].query),
+                    Err(e) => warnings.push(format!(
+                        "could not fetch volume covers for '{}': {e:#}",
+                        groups[gi].query
+                    )),
+                }
+            }
+        }
+
+        // 10. Name every file.
         let mut items = Vec::with_capacity(parsed.len());
         for (i, (file, info, kind)) in parsed.into_iter().enumerate() {
             let (matched, error) = match group_of[i].map(|gi| &states[gi]) {
@@ -432,15 +525,17 @@ impl Engine {
                     candidate: Arc::new(c),
                     score: 1.0,
                     series: None,
+                    book: None,
+                    covers: None,
                 }),
                 Err(e) => GroupState::Failed(format!("{e:#}")),
             });
         }
-        if self.providers.for_kind(g.kind).is_empty() {
+        if self.providers.for_kind(g.kind, &opts.providers).is_empty() {
             let reason = self
                 .providers
                 .missing_reason(g.kind)
-                .unwrap_or("no metadata provider")
+                .unwrap_or("none of the configured metadata providers is available (see [providers] in the config)")
                 .to_string();
             // Comics still get a tidy name from the parsed filename.
             return if g.kind == MediaKind::Comic {
@@ -449,7 +544,7 @@ impl Engine {
                 Ok(GroupState::Failed(reason))
             };
         }
-        match self.search(g.kind, &g.query, g.year, opts.threshold).await {
+        match self.search(g.kind, &g.query, g.year, opts.threshold, &opts.providers).await {
             Ok(SearchResult {
                 accepted: Some(best),
                 ..
@@ -457,6 +552,8 @@ impl Engine {
                 candidate: Arc::new(best.candidate),
                 score: best.score,
                 series: None,
+                book: None,
+                covers: None,
             })),
             Ok(SearchResult { candidates, .. }) => Err(SearchNeedsChoice::Ask(candidates)),
             Err(e) => Ok(GroupState::Failed(format!("lookup failed: {e:#}"))),
@@ -497,11 +594,13 @@ impl Engine {
                         candidate: Arc::new(s.candidate),
                         score: s.score,
                         series: None,
+                        book: None,
+                        covers: None,
                     });
                 }
                 Choice::Pick(_) | Choice::Skip => return GroupState::Failed("skipped".into()),
                 // Keep the file's year so ranking still prefers the right release.
-                Choice::Search(q) => match self.search(g.kind, &q, g.year, f64::INFINITY).await {
+                Choice::Search(q) => match self.search(g.kind, &q, g.year, f64::INFINITY, &opts.providers).await {
                     Ok(r) => candidates = r.candidates,
                     Err(e) => {
                         tracing::warn!("search failed: {e:#}");
@@ -514,10 +613,17 @@ impl Engine {
 
     /// Search the providers for `kind` in priority order. A candidate scoring
     /// at least `accept` ends the search early.
-    async fn search(&self, kind: MediaKind, query: &str, year: Option<u16>, accept: f64) -> Result<SearchResult> {
+    async fn search(
+        &self,
+        kind: MediaKind,
+        query: &str,
+        year: Option<u16>,
+        accept: f64,
+        order: &ProviderOrder,
+    ) -> Result<SearchResult> {
         let mut all: Vec<Scored> = Vec::new();
         let mut errors = Vec::new();
-        for p in self.providers.for_kind(kind) {
+        for p in self.providers.for_kind(kind, order) {
             match p.search(query, year, kind).await {
                 Ok(found) => {
                     let ranked = matcher::rank(query, year, found);
@@ -546,8 +652,17 @@ impl Engine {
     }
 
     /// Ranked candidates for a title across all providers (for `mrn info`).
-    pub async fn candidates(&self, kind: MediaKind, query: &str, year: Option<u16>) -> Result<Vec<Scored>> {
-        Ok(self.search(kind, query, year, f64::INFINITY).await?.candidates)
+    pub async fn candidates(
+        &self,
+        kind: MediaKind,
+        query: &str,
+        year: Option<u16>,
+        opts: &Options,
+    ) -> Result<Vec<Scored>> {
+        Ok(self
+            .search(kind, query, year, f64::INFINITY, &opts.providers)
+            .await?
+            .candidates)
     }
 
     pub async fn lookup(&self, forced: &ForcedId, kind: MediaKind) -> Result<Candidate> {
@@ -557,35 +672,237 @@ impl Engine {
             .await
     }
 
-    /// Episode list for a matched series. AniList has no episode titles, so
-    /// anime is cross-referenced with TMDB by title when a key is available.
-    async fn series_for(&self, kind: MediaKind, c: &Candidate) -> Result<Option<SeriesInfo>> {
+    /// Episode list for a matched series. TMDB shows have their own. AniList
+    /// has no episode titles, so anime walks `episode_sources` (`[providers]
+    /// anime_episodes`): each source fills in episodes the earlier ones lack,
+    /// until every file in `files` finds its episode.
+    async fn series_for(
+        &self,
+        kind: MediaKind,
+        c: &Candidate,
+        episode_sources: &[Source],
+        files: &[ParsedInfo],
+    ) -> Result<Option<SeriesInfo>> {
+        if c.source() == Source::Tmdb {
+            return match &self.providers.tmdb {
+                Some(tmdb) => Ok(Some(tmdb.series(c).await?)),
+                None => Ok(None),
+            };
+        }
+        if kind != MediaKind::Anime {
+            return Ok(None);
+        }
+        let mut merged: Option<SeriesInfo> = None;
+        let mut error = None;
+        for &source in episode_sources {
+            if merged.as_ref().is_some_and(|s| covers(s, files)) {
+                break;
+            }
+            let found = match source {
+                Source::Tmdb => self.tmdb_series_by_title(c).await,
+                Source::Mal => self.mal_series(c, files).await,
+                _ => Ok(None),
+            };
+            match found {
+                Ok(Some(s)) if !s.episodes.is_empty() => {
+                    merged = Some(match merged.take() {
+                        None => s,
+                        Some(m) => merge_series(m, s),
+                    });
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    tracing::warn!("{source} episode list for '{}': {e:#}", c.title);
+                    error = Some(e);
+                }
+            }
+        }
+        match (merged, error) {
+            (Some(s), _) => Ok(Some(s)),
+            (None, Some(e)) => Err(e),
+            (None, None) => Ok(None),
+        }
+    }
+
+    /// MAL episodes for an anime entry. When a file needs another season
+    /// (`S02E03`, or numbering past the entry's end), the franchise's seasons
+    /// are found through AniList's prequel/sequel links and their MAL lists
+    /// are joined into one list with TheTVDB-style seasons.
+    async fn mal_series(&self, c: &Candidate, files: &[ParsedInfo]) -> Result<Option<SeriesInfo>> {
+        let mal = &self.providers.mal;
+        let base = match c.id_for(Source::Mal) {
+            Some(id) => Some(mal.episodes(id).await?),
+            None => None,
+        };
+        let base_count = base.as_ref().map_or(0, last_episode);
+        let other_seasons: HashSet<u32> = files
+            .iter()
+            .filter(|i| !i.episodes.is_empty())
+            .filter_map(|i| i.season)
+            .filter(|&s| s != 1)
+            .collect();
+        let max_abs = files.iter().flat_map(|i| i.absolute.iter().copied()).max().unwrap_or(0);
+        if other_seasons.is_empty() && max_abs <= base_count {
+            return Ok(base);
+        }
+
+        let start = match (c.id_for(Source::Anilist), c.id_for(Source::Mal)) {
+            (Some(id), _) => id.parse().ok().map(|id| (id, false)),
+            (None, Some(id)) => id.parse().ok().map(|id| (id, true)),
+            (None, None) => None,
+        };
+        let Some((start_id, by_mal)) = start else { return Ok(base) };
+        let chain = match self.providers.anilist.season_chain(start_id, by_mal).await {
+            Ok(chain) if chain.entries.len() > 1 => chain,
+            Ok(_) => return Ok(base),
+            Err(e) => {
+                tracing::warn!("AniList seasons of '{}': {e:#}", c.title);
+                return Ok(base);
+            }
+        };
+        let wanted: HashSet<u32> = files
+            .iter()
+            .filter(|i| !i.episodes.is_empty())
+            .filter_map(|i| i.season)
+            .collect();
+
+        let mut out = SeriesInfo::default();
+        let mut season = 0;
+        // Episodes of earlier parts of the same season ("Part 2" continues them).
+        let mut offset = 0;
+        // Running count from the matched entry, for absolute numbers.
+        let mut absolute: Option<u32> = None;
+        for (i, entry) in chain.entries.iter().enumerate() {
+            if entry.season != season {
+                season = entry.season;
+                offset = 0;
+            }
+            if i == chain.matched {
+                absolute = Some(0);
+            }
+            let needed = wanted.contains(&entry.season)
+                || absolute.is_some_and(|a| a < max_abs);
+            let list = if i == chain.matched && base.is_some() {
+                base.clone().unwrap_or_default()
+            } else if needed && let Some(id) = entry.mal_id {
+                mal.episodes(&id.to_string()).await.unwrap_or_else(|e| {
+                    tracing::warn!("MAL episodes of '{}': {e:#}", entry.title);
+                    SeriesInfo::default()
+                })
+            } else {
+                SeriesInfo::default()
+            };
+            for e in &list.episodes {
+                out.episodes.push(Episode {
+                    season: entry.season,
+                    episode: offset + e.episode,
+                    absolute: absolute.map(|a| a + e.episode),
+                    ..e.clone()
+                });
+            }
+            // Without a count, later positions are unknown: stop numbering.
+            let count = match last_episode(&list) {
+                0 => entry.episodes.unwrap_or(0),
+                n => n,
+            };
+            if count == 0 {
+                absolute = None;
+            }
+            offset += count;
+            absolute = absolute.map(|a| a + count);
+        }
+        Ok(Some(out))
+    }
+
+    /// TMDB episode list for an anime from another source, found by title.
+    async fn tmdb_series_by_title(&self, c: &Candidate) -> Result<Option<SeriesInfo>> {
         let Some(tmdb) = &self.providers.tmdb else {
             return Ok(None);
         };
-        match c.source() {
-            Source::Tmdb => Ok(Some(tmdb.series(c).await?)),
-            Source::Anilist if kind == MediaKind::Anime => {
-                let mut queries: Vec<&str> = Vec::new();
-                for q in c.english_title.iter().chain(std::iter::once(&c.title)) {
-                    if !queries.contains(&q.as_str()) {
-                        queries.push(q);
-                    }
-                }
-                for q in queries {
-                    let found = tmdb.search(q, c.year, MediaKind::Tv).await?;
-                    let ranked = matcher::rank(q, c.year, found);
-                    if let Some(best) = ranked.first()
-                        && best.score >= CROSS_REF_THRESHOLD
-                    {
-                        tracing::debug!("anime '{}' → TMDB '{}'", c.title, best.candidate.label());
-                        return Ok(Some(tmdb.series(&best.candidate).await?));
-                    }
-                }
-                Ok(None)
+        let mut queries: Vec<&str> = Vec::new();
+        for q in c.english_title.iter().chain(std::iter::once(&c.title)) {
+            if !queries.contains(&q.as_str()) {
+                queries.push(q);
             }
-            _ => Ok(None),
         }
+        for q in queries {
+            let found = tmdb.search(q, c.year, MediaKind::Tv).await?;
+            let ranked = matcher::rank(q, c.year, found);
+            if let Some(best) = ranked.first()
+                && best.score >= CROSS_REF_THRESHOLD
+            {
+                tracing::debug!("anime '{}' → TMDB '{}'", c.title, best.candidate.label());
+                return Ok(Some(tmdb.series(&best.candidate).await?));
+            }
+        }
+        Ok(None)
+    }
+
+    /// The naming preset in effect: `--format` if it names one, else the config's.
+    fn preset<'a>(&'a self, opts: &'a Options) -> &'a str {
+        opts.format
+            .as_deref()
+            .filter(|f| presets::PRESETS.contains(f))
+            .unwrap_or(&self.config.general.preset)
+    }
+
+    /// Book covers go beside each book (`<stem>.<ext>`) for Komga, which reads
+    /// them. Kavita would list them as extra chapters, so only with `komga`.
+    fn book_sidecars(&self, opts: &Options) -> bool {
+        opts.extras.artwork && self.preset(opts) == "komga"
+    }
+
+    fn wants_book_covers(&self, opts: &Options) -> bool {
+        opts.extras.embed_cover || self.book_sidecars(opts)
+    }
+
+    /// MangaDex volume covers for a manga matched on any source. `None` when
+    /// it isn't on MangaDex or has no volume covers.
+    async fn manga_covers(&self, c: &Candidate, chapters: bool) -> Result<Option<VolumeCovers>> {
+        let id = match c.id_for(Source::Mangadex) {
+            Some(id) => id.to_string(),
+            None => match self.mangadex_by_title(c).await? {
+                Some(id) => id,
+                None => return Ok(None),
+            },
+        };
+        let covers = self.providers.mangadex.volume_covers(&id, chapters).await?;
+        Ok((!covers.volumes.is_empty()).then_some(covers))
+    }
+
+    /// Find a manga from another source on MangaDex. A shared AniList or MAL
+    /// id settles it either way; otherwise the title must score at least
+    /// [`CROSS_REF_THRESHOLD`].
+    async fn mangadex_by_title(&self, c: &Candidate) -> Result<Option<String>> {
+        let same = |m: &Candidate, s: Source| match (c.id_for(s), m.id_for(s)) {
+            (Some(a), Some(b)) => Some(a == b),
+            _ => None,
+        };
+        let mut queries: Vec<&str> = Vec::new();
+        for q in c.english_title.iter().chain(std::iter::once(&c.title)) {
+            if !queries.contains(&q.as_str()) {
+                queries.push(q);
+            }
+        }
+        for q in queries {
+            let found = self.providers.mangadex.search(q, c.year, MediaKind::Manga).await?;
+            if let Some(m) = found
+                .iter()
+                .find(|m| same(m, Source::Anilist) == Some(true) || same(m, Source::Mal) == Some(true))
+            {
+                return Ok(Some(m.id.clone()));
+            }
+            let unrelated = |m: &Candidate| same(m, Source::Anilist) == Some(false) || same(m, Source::Mal) == Some(false);
+            let found: Vec<Candidate> = found.into_iter().filter(|m| !unrelated(m)).collect();
+            let ranked = matcher::rank(q, c.year, found);
+            if let Some(best) = ranked.first()
+                && best.score >= CROSS_REF_THRESHOLD
+            {
+                tracing::debug!("manga '{}' → MangaDex '{}'", c.title, best.candidate.label());
+                return Ok(Some(best.candidate.id.clone()));
+            }
+        }
+        Ok(None)
     }
 
     /// Resolve target conflicts for every named item.
@@ -604,7 +921,7 @@ impl Engine {
                 })
             })
             .collect();
-        ops::build_plan(requests, opts.conflict)
+        ops::build_plan(requests, opts.conflict, opts.action)
     }
 
     /// Carry out a plan, recording every step in `history`.
@@ -624,27 +941,39 @@ impl Engine {
         };
         let mut written: HashSet<PathBuf> = HashSet::new();
         let mut warned_comicinfo = false;
+        let mut warned_cover = false;
+        // Chapter files of one volume share its cover: download it once.
+        let mut images: HashMap<String, Arc<Vec<u8>>> = HashMap::new();
 
         for item in plan.iter().filter(|p| p.status.is_runnable()) {
             let meta = &analysis.items[item.tag];
-            let overwrite = item.status == ItemStatus::Overwrite;
+            // Files replaced with `--conflict override` go to the trash.
+            let replace = (item.status == ItemStatus::Overwrite).then(|| history.trash());
 
-            // Main file, with ComicInfo embedded before the result is recorded.
             let main = &item.main;
             let op_id = history.start_op(batch, opts.action.into(), Some(&main.from), &main.to)?;
-            match ops::apply(main, opts.action, overwrite) {
-                Ok(dirs) => {
-                    history.add_dirs(batch, &dirs)?;
+            match ops::apply(main, opts.action, replace) {
+                Ok(applied) => {
+                    history.add_dirs(batch, &applied.dirs)?;
+                    history.finish_op(op_id, &main.to, applied.replaced.as_deref())?;
                     // General notices ("not embedded with --action ...") are shown once;
                     // per-file failures every time.
-                    if let Some(w) = self.embed_comicinfo(meta, &main.to, opts) {
+                    if let Some(w) = self.embed_comicinfo(meta, &main.to, opts, history, batch)? {
                         let general = w.starts_with("ComicInfo");
                         if !(general && warned_comicinfo) {
                             on_event(ExecEvent::Warning(w));
                         }
                         warned_comicinfo |= general;
                     }
-                    history.finish_op(op_id, &main.to, overwrite)?;
+                    if let Some((w, general)) = self
+                        .embed_book_cover(meta, &main.to, opts, history, batch, &mut images)
+                        .await?
+                    {
+                        if !(general && warned_cover) {
+                            on_event(ExecEvent::Warning(w));
+                        }
+                        warned_cover |= general;
+                    }
                     report.done += 1;
                     on_event(ExecEvent::Done { op: main });
                 }
@@ -661,10 +990,10 @@ impl Engine {
 
             for op in &item.sidecars {
                 let id = history.start_op(batch, opts.action.into(), Some(&op.from), &op.to)?;
-                match ops::apply(op, opts.action, overwrite) {
-                    Ok(dirs) => {
-                        history.add_dirs(batch, &dirs)?;
-                        history.finish_op(id, &op.to, overwrite)?;
+                match ops::apply(op, opts.action, replace) {
+                    Ok(applied) => {
+                        history.add_dirs(batch, &applied.dirs)?;
+                        history.finish_op(id, &op.to, applied.replaced.as_deref())?;
                         report.done += 1;
                         on_event(ExecEvent::Done { op });
                     }
@@ -694,25 +1023,109 @@ impl Engine {
         Ok(report)
     }
 
-    /// Embed ComicInfo.xml if enabled. Returns a warning on failure.
-    fn embed_comicinfo(&self, item: &Item, target: &Path, opts: &Options) -> Option<String> {
+    /// Embed ComicInfo.xml if enabled, recorded as an `embed` op so undo can
+    /// revert it. Returns a warning when it is skipped or fails.
+    fn embed_comicinfo(
+        &self,
+        item: &Item,
+        target: &Path,
+        opts: &Options,
+        history: &History,
+        batch: i64,
+    ) -> Result<Option<String>> {
         if !opts.extras.comicinfo || !item.kind.is_book() {
-            return None;
+            return Ok(None);
         }
-        let m = item.matched.as_ref()?;
+        let Some(m) = item.matched.as_ref() else { return Ok(None) };
         if !matches!(opts.action, Action::Move | Action::Copy) {
-            return Some(format!(
+            return Ok(Some(format!(
                 "ComicInfo.xml is not embedded with --action {} (it would modify the original)",
                 opts.action
-            ));
+            )));
         }
         if !comicinfo::supported(target) {
-            return Some("ComicInfo.xml can only be embedded in .cbz files; skipped others".into());
+            return Ok(Some("ComicInfo.xml can only be embedded in .cbz files; skipped others".into()));
         }
-        let xml = comicinfo::build(item.kind, &m.candidate, &item.info, item.issue.as_ref());
-        comicinfo::inject(target, &xml)
-            .err()
-            .map(|e| format!("{}: {e:#}", target.display()))
+        let xml = comicinfo::build(
+            item.kind,
+            &m.candidate,
+            &item.info,
+            item.issue.as_ref(),
+            m.book.as_deref(),
+        );
+        let id = history.start_op(batch, OpKind::Embed, None, target)?;
+        match comicinfo::inject(target, &xml) {
+            Ok(previous) => {
+                history.finish_embed(id, target, previous.as_deref())?;
+                Ok(None)
+            }
+            Err(e) => {
+                history.fail_op(id, &format!("{e:#}"))?;
+                Ok(Some(format!("{}: {e:#}", target.display())))
+            }
+        }
+    }
+
+    /// Embed the book's cover (Kavita) if enabled, recorded as a `cover` op so
+    /// undo can remove it. Returns a warning, and whether it is a general one
+    /// (shown once), when it is skipped or fails.
+    async fn embed_book_cover(
+        &self,
+        item: &Item,
+        target: &Path,
+        opts: &Options,
+        history: &History,
+        batch: i64,
+        images: &mut HashMap<String, Arc<Vec<u8>>>,
+    ) -> Result<Option<(String, bool)>> {
+        if !opts.extras.embed_cover || !item.kind.is_book() {
+            return Ok(None);
+        }
+        let Some(url) = book_cover(item) else { return Ok(None) };
+        if !matches!(opts.action, Action::Move | Action::Copy) {
+            let w = format!(
+                "covers are not embedded with --action {} (it would modify the original)",
+                opts.action
+            );
+            return Ok(Some((w, true)));
+        }
+        if !comicinfo::supported(target) {
+            return Ok(Some(("covers can only be embedded in .cbz files; skipped others".into(), true)));
+        }
+        match cover::has_cover(target) {
+            Ok(true) => return Ok(None),
+            Ok(false) => {}
+            Err(e) => return Ok(Some((format!("{}: {e:#}", target.display()), false))),
+        }
+        let bytes = match images.get(url) {
+            Some(b) => b.clone(),
+            None => match self.http.get_bytes(url).await {
+                Ok(b) => {
+                    let b = Arc::new(b);
+                    images.insert(url.to_string(), b.clone());
+                    b
+                }
+                Err(e) => {
+                    let w = format!("could not download the cover for {}: {e:#}", target.display());
+                    return Ok(Some((w, false)));
+                }
+            },
+        };
+        let id = history.start_op(batch, OpKind::Cover, None, target)?;
+        match cover::embed(target, &bytes, extras::image_ext(url)) {
+            Ok(Some(entry)) => {
+                history.finish_embed(id, target, Some(entry.as_bytes()))?;
+                Ok(None)
+            }
+            Ok(None) => {
+                history.fail_op(id, "the archive already has a cover")?;
+                Ok(None)
+            }
+            Err(e) => {
+                history.fail_op(id, &format!("{e:#}"))?;
+                Ok(Some((format!("{}: {e:#}", target.display()), false)))
+            }
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -737,6 +1150,8 @@ impl Engine {
             episode: item.episodes.first(),
             season: item.episodes.first().map(|e| e.season).or(item.info.season),
             episode_numbers: &item.info.episodes,
+            book_cover: book_cover(item),
+            book_sidecar: self.book_sidecars(opts),
         };
         for extra in extras::plan(&ctx, &opts.extras) {
             if written.contains(&extra.path) || fs::symlink_metadata(&extra.path).is_ok() {
@@ -750,7 +1165,7 @@ impl Engine {
             match result {
                 Ok(()) => {
                     let id = history.start_op(batch, OpKind::Create, None, &extra.path)?;
-                    history.finish_op(id, &extra.path, false)?;
+                    history.finish_op(id, &extra.path, None)?;
                     report.extras += 1;
                     on_event(ExecEvent::Extra { path: &extra.path });
                 }
@@ -771,6 +1186,20 @@ enum SearchNeedsChoice {
     Ask(Vec<Scored>),
 }
 
+/// A book's own cover: the comic issue's, or the manga volume's.
+fn book_cover(item: &Item) -> Option<&str> {
+    match item.kind {
+        MediaKind::Comic => item.issue.as_ref()?.cover.as_deref(),
+        MediaKind::Manga => item
+            .matched
+            .as_ref()?
+            .covers
+            .as_ref()?
+            .for_book(item.info.volume, item.info.chapter),
+        _ => None,
+    }
+}
+
 fn write_text(path: &Path, text: &str) -> Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
@@ -786,6 +1215,12 @@ fn find_episodes(series: &SeriesInfo, info: &ParsedInfo) -> Vec<Episode> {
     if let Some(season) = info.season
         && !info.episodes.is_empty()
     {
+        // A one-entry list (MAL) is a single season. A later season in the
+        // file name usually means the search matched the first season's
+        // entry, so its titles would be wrong: give none.
+        if series.single_entry && season != 1 {
+            return Vec::new();
+        }
         return info
             .episodes
             .iter()
@@ -804,6 +1239,47 @@ fn find_episodes(series: &SeriesInfo, info: &ParsedInfo) -> Vec<Episode> {
     }
     Vec::new()
 }
+
+/// Whether every file with an episode number finds it in `series`.
+fn covers(series: &SeriesInfo, files: &[ParsedInfo]) -> bool {
+    files.iter().all(|i| {
+        let numbered = !i.episodes.is_empty() || !i.absolute.is_empty() || i.date.is_some();
+        !numbered || !find_episodes(series, i).is_empty()
+    })
+}
+
+/// `primary` plus the episodes of `extra` it doesn't have. Where both have
+/// an absolute number, `primary`'s numbering wins.
+fn merge_series(mut primary: SeriesInfo, extra: SeriesInfo) -> SeriesInfo {
+    for mut e in extra.episodes {
+        if primary.by_season_episode(e.season, e.episode).is_some() {
+            continue;
+        }
+        if e.absolute.is_some_and(|a| primary.by_absolute(a).is_some()) {
+            e.absolute = None;
+        }
+        primary.episodes.push(e);
+    }
+    for (season, poster) in extra.season_posters {
+        primary.season_posters.entry(season).or_insert(poster);
+    }
+    primary.single_entry &= extra.single_entry;
+    primary
+}
+
+/// Highest episode number in a list (its length when numbered from 1).
+fn last_episode(series: &SeriesInfo) -> u32 {
+    series.episodes.iter().map(|e| e.episode).max().unwrap_or(0)
+}
+
+/// Template fields holding an entry's id on one site, from the match itself
+/// or its cross-site ids.
+const ID_FIELDS: [(&str, Source); 4] = [
+    ("tmdbid", Source::Tmdb),
+    ("anilistid", Source::Anilist),
+    ("malid", Source::Mal),
+    ("mangabakaid", Source::Mangabaka),
+];
 
 /// Template fields for one file.
 pub fn build_fields(
@@ -828,10 +1304,8 @@ pub fn build_fields(
     if let Some(c) = c {
         f.set_text("id", Some(c.id.clone()));
         f.set_text("source", Some(c.source().as_str()));
-        match c.source() {
-            Source::Tmdb => f.set_text("tmdbid", Some(c.id.clone())),
-            Source::Anilist => f.set_text("anilistid", Some(c.id.clone())),
-            _ => {}
+        for (field, source) in ID_FIELDS {
+            f.set_text(field, c.id_for(source).map(String::from));
         }
         f.set_text("publisher", c.publisher.clone());
     }

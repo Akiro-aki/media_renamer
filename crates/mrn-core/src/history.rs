@@ -2,7 +2,10 @@
 //!
 //! Every operation is written as `pending` before it touches the disk and
 //! marked `done` (with the target's size and mtime) afterwards, so even an
-//! interrupted run can be inspected and reverted.
+//! interrupted run can be inspected and reverted. A file replaced with
+//! `--conflict override` is moved to the trash and its trash path recorded,
+//! and an embedded ComicInfo.xml is recorded with the entry it replaced, so
+//! both can be reverted too.
 
 use std::ffi::OsStr;
 use std::fs;
@@ -14,9 +17,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, bail};
 use rusqlite::{Connection, OptionalExtension, params};
 
+use crate::extras::{comicinfo, cover};
 use crate::ops::{self, Action};
+use crate::trash::{self, Trash};
 
-/// What an operation did. `Create` is a file written by extras (nfo, art).
+/// What an operation did. `Create` is a file written by extras (nfo, art);
+/// `Embed` is ComicInfo.xml written into an archive, `Cover` a cover image
+/// added to one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpKind {
     Move,
@@ -24,6 +31,8 @@ pub enum OpKind {
     Hardlink,
     Symlink,
     Create,
+    Embed,
+    Cover,
 }
 
 impl OpKind {
@@ -34,7 +43,15 @@ impl OpKind {
             OpKind::Hardlink => "hardlink",
             OpKind::Symlink => "symlink",
             OpKind::Create => "create",
+            OpKind::Embed => "embed",
+            OpKind::Cover => "cover",
         }
+    }
+
+    /// Ops that change an archive in place instead of creating a file. They
+    /// are not counted as files and are reverted by rewriting the archive.
+    pub fn edits_in_place(self) -> bool {
+        matches!(self, OpKind::Embed | OpKind::Cover)
     }
 
     fn parse(s: &str) -> OpKind {
@@ -43,6 +60,8 @@ impl OpKind {
             "hardlink" => OpKind::Hardlink,
             "symlink" => OpKind::Symlink,
             "create" => OpKind::Create,
+            "embed" => OpKind::Embed,
+            "cover" => OpKind::Cover,
             _ => OpKind::Move,
         }
     }
@@ -81,6 +100,11 @@ pub struct OpRecord {
     pub size: Option<i64>,
     pub mtime_ns: Option<i64>,
     pub overwrote: bool,
+    /// Where the file this op replaced was moved (in the trash).
+    pub backup: Option<PathBuf>,
+    /// For `Embed`: the ComicInfo.xml the archive had before (`None` if none).
+    /// For `Cover`: the name of the entry it added.
+    pub data: Option<Vec<u8>>,
     pub error: Option<String>,
 }
 
@@ -94,6 +118,7 @@ pub struct UndoReport {
 
 pub struct History {
     conn: Connection,
+    trash: Trash,
 }
 
 const SCHEMA: &str = r#"
@@ -114,7 +139,9 @@ CREATE TABLE IF NOT EXISTS ops (
     size      INTEGER,
     mtime_ns  INTEGER,
     overwrote INTEGER NOT NULL DEFAULT 0,
-    error     TEXT
+    error     TEXT,
+    backup    BLOB,
+    data      BLOB
 );
 CREATE INDEX IF NOT EXISTS ops_batch ON ops(batch);
 CREATE TABLE IF NOT EXISTS dirs (
@@ -144,6 +171,18 @@ fn stat(p: &Path) -> Option<(i64, i64)> {
     Some((m.size() as i64, m.mtime() * 1_000_000_000 + m.mtime_nsec()))
 }
 
+/// Add columns that older databases lack.
+fn migrate(conn: &Connection) -> Result<()> {
+    let mut stmt = conn.prepare("SELECT name FROM pragma_table_info('ops')")?;
+    let columns: Vec<String> = stmt.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    for col in ["backup", "data"] {
+        if !columns.iter().any(|c| c == col) {
+            conn.execute_batch(&format!("ALTER TABLE ops ADD COLUMN {col} BLOB"))?;
+        }
+    }
+    Ok(())
+}
+
 impl History {
     pub fn open(path: &Path) -> Result<History> {
         if let Some(dir) = path.parent() {
@@ -154,7 +193,22 @@ impl History {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.execute_batch(SCHEMA)?;
-        Ok(History { conn })
+        migrate(&conn)?;
+        Ok(History {
+            conn,
+            trash: Trash::from_env(),
+        })
+    }
+
+    /// Use another trash for replaced files (tests).
+    pub fn with_trash(mut self, trash: Trash) -> History {
+        self.trash = trash;
+        self
+    }
+
+    /// Where replaced files go.
+    pub fn trash(&self) -> &Trash {
+        &self.trash
     }
 
     pub fn default_path() -> Result<PathBuf> {
@@ -190,13 +244,25 @@ impl History {
         Ok(self.conn.last_insert_rowid())
     }
 
-    /// Mark an operation done. Call after any post-processing of the target
-    /// (e.g. ComicInfo injection) so the recorded size/mtime are final.
-    pub fn finish_op(&self, op: i64, to: &Path, overwrote: bool) -> Result<()> {
+    /// Mark an operation done and record the target's size and mtime.
+    /// `replaced` is where a file that was at the target went.
+    pub fn finish_op(&self, op: i64, to: &Path, replaced: Option<&Path>) -> Result<()> {
         let (size, mtime) = stat(to).unzip();
         self.conn.execute(
-            "UPDATE ops SET status = 'done', size = ?2, mtime_ns = ?3, overwrote = ?4 WHERE id = ?1",
-            params![op, size, mtime, overwrote],
+            "UPDATE ops SET status = 'done', size = ?2, mtime_ns = ?3, overwrote = ?4, backup = ?5
+             WHERE id = ?1",
+            params![op, size, mtime, replaced.is_some(), replaced.map(blob)],
+        )?;
+        Ok(())
+    }
+
+    /// Mark an `Embed` op done, keeping the ComicInfo.xml it replaced, or a
+    /// `Cover` op, keeping the name of the entry it added.
+    pub fn finish_embed(&self, op: i64, archive: &Path, previous: Option<&[u8]>) -> Result<()> {
+        let (size, mtime) = stat(archive).unzip();
+        self.conn.execute(
+            "UPDATE ops SET status = 'done', size = ?2, mtime_ns = ?3, data = ?4 WHERE id = ?1",
+            params![op, size, mtime, previous],
         )?;
         Ok(())
     }
@@ -232,8 +298,10 @@ impl History {
     pub fn batches(&self, limit: usize) -> Result<Vec<BatchSummary>> {
         let mut stmt = self.conn.prepare(
             "SELECT b.id, b.created, b.action, b.args, b.status,
-                    (SELECT COUNT(*) FROM ops o WHERE o.batch = b.id AND o.status = 'done'),
-                    (SELECT COUNT(*) FROM ops o WHERE o.batch = b.id AND o.status = 'failed')
+                    (SELECT COUNT(*) FROM ops o WHERE o.batch = b.id AND o.status = 'done'
+                        AND o.kind NOT IN ('embed', 'cover')),
+                    (SELECT COUNT(*) FROM ops o WHERE o.batch = b.id AND o.status = 'failed'
+                        AND o.kind NOT IN ('embed', 'cover'))
              FROM batches b ORDER BY b.id DESC LIMIT ?1",
         )?;
         let rows = stmt.query_map(params![limit as i64], |r| {
@@ -252,7 +320,7 @@ impl History {
 
     pub fn ops(&self, batch: i64) -> Result<Vec<OpRecord>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, kind, src, dst, status, size, mtime_ns, overwrote, error
+            "SELECT id, kind, src, dst, status, size, mtime_ns, overwrote, error, backup, data
              FROM ops WHERE batch = ?1 ORDER BY id",
         )?;
         let rows = stmt.query_map(params![batch], |r| {
@@ -266,6 +334,8 @@ impl History {
                 mtime_ns: r.get(6)?,
                 overwrote: r.get::<_, i64>(7)? != 0,
                 error: r.get(8)?,
+                backup: r.get::<_, Option<Vec<u8>>>(9)?.map(path),
+                data: r.get(10)?,
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -299,13 +369,33 @@ impl History {
         let mut report = UndoReport::default();
         let mut ops = self.ops(batch)?;
         ops.reverse();
-        for op in ops.iter().filter(|o| o.status == "done") {
-            match self.undo_op(op, force, &mut report) {
+        for i in 0..ops.len() {
+            let op = &ops[i];
+            if op.status != "done" {
+                continue;
+            }
+            // An in-place edit is reverted unless an earlier op of this batch
+            // created the archive (it is about to be deleted anyway).
+            let rewrite = !ops[i + 1..]
+                .iter()
+                .any(|o| o.to == op.to && o.status == "done" && o.kind != OpKind::Move && !o.kind.edits_in_place());
+            match self.undo_op(op, force, rewrite, &mut report) {
                 Ok(()) => {
                     self.conn.execute(
                         "UPDATE ops SET status = 'undone' WHERE id = ?1",
                         params![op.id],
                     )?;
+                    if op.kind.edits_in_place() {
+                        // Earlier ops on this archive recorded it before the
+                        // edit; they now expect its current state.
+                        let to = op.to.clone();
+                        let (size, mtime) = stat(&to).unzip();
+                        for earlier in ops[i + 1..].iter_mut().filter(|o| o.to == to) {
+                            earlier.size = size;
+                            earlier.mtime_ns = mtime;
+                            self.restat_op(earlier.id, &to)?;
+                        }
+                    }
                 }
                 Err(reason) => report.skipped.push((op.to.clone(), reason)),
             }
@@ -330,7 +420,7 @@ impl History {
         Ok(report)
     }
 
-    fn undo_op(&self, op: &OpRecord, force: bool, report: &mut UndoReport) -> Result<(), String> {
+    fn undo_op(&self, op: &OpRecord, force: bool, rewrite: bool, report: &mut UndoReport) -> Result<(), String> {
         let Some((size, mtime)) = stat(&op.to) else {
             return Err("no longer exists".into());
         };
@@ -347,20 +437,57 @@ impl History {
                     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
                 }
                 ops::move_file(&op.to, from).map_err(|e| e.to_string())?;
-                if op.overwrote {
-                    report.warnings.push(format!(
-                        "{} had replaced an existing file, which cannot be restored",
-                        op.to.display()
-                    ));
-                }
                 report.restored.push((op.to.clone(), from.clone()));
             }
             OpKind::Copy | OpKind::Hardlink | OpKind::Symlink | OpKind::Create => {
                 fs::remove_file(&op.to).map_err(|e| e.to_string())?;
                 report.removed.push(op.to.clone());
             }
+            OpKind::Embed => {
+                if rewrite {
+                    comicinfo::restore(&op.to, op.data.as_deref()).map_err(|e| format!("{e:#}"))?;
+                }
+                return Ok(());
+            }
+            OpKind::Cover => {
+                if rewrite {
+                    let name = op
+                        .data
+                        .as_deref()
+                        .and_then(|d| std::str::from_utf8(d).ok())
+                        .ok_or("no cover entry recorded")?;
+                    cover::remove(&op.to, name).map_err(|e| format!("{e:#}"))?;
+                }
+                return Ok(());
+            }
         }
+        self.restore_replaced(op, report);
         Ok(())
+    }
+
+    /// Put back the file an op replaced, now that its target is free again.
+    fn restore_replaced(&self, op: &OpRecord, report: &mut UndoReport) {
+        match &op.backup {
+            Some(backup) => match trash::restore(backup, &op.to) {
+                Ok(()) => report.restored.push((backup.clone(), op.to.clone())),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => report.warnings.push(format!(
+                    "the file {} replaced is no longer in the trash ({})",
+                    op.to.display(),
+                    backup.display()
+                )),
+                Err(e) => report.warnings.push(format!(
+                    "could not restore the replaced {} from {}: {e}",
+                    op.to.display(),
+                    backup.display()
+                )),
+            },
+            // Batches from before replaced files were kept.
+            None if op.overwrote => report.warnings.push(format!(
+                "{} had replaced an existing file, which cannot be restored",
+                op.to.display()
+            )),
+            None => {}
+        }
     }
 }
 
@@ -383,14 +510,14 @@ mod tests {
 
         let batch = h.begin_batch("move", "test").unwrap();
         let id = h.start_op(batch, OpKind::Move, Some(&op.from), &op.to).unwrap();
-        let created = ops::apply(&op, Action::Move, false).unwrap();
-        h.add_dirs(batch, &created).unwrap();
-        h.finish_op(id, &op.to, false).unwrap();
+        let applied = ops::apply(&op, Action::Move, None).unwrap();
+        h.add_dirs(batch, &applied.dirs).unwrap();
+        h.finish_op(id, &op.to, None).unwrap();
 
         let nfo = d.path().join("out/Show/tvshow.nfo");
         fs::write(&nfo, b"<x/>").unwrap();
         let nid = h.start_op(batch, OpKind::Create, None, &nfo).unwrap();
-        h.finish_op(nid, &nfo, false).unwrap();
+        h.finish_op(nid, &nfo, None).unwrap();
         h.finish_batch(batch).unwrap();
 
         assert_eq!(h.last_undoable().unwrap(), Some(batch));
@@ -413,11 +540,118 @@ mod tests {
         let batch = h.begin_batch("move", "").unwrap();
         let id = h.start_op(batch, OpKind::Move, Some(&src), &to).unwrap();
         ops::move_file(&src, &to).unwrap();
-        h.finish_op(id, &to, false).unwrap();
+        h.finish_op(id, &to, None).unwrap();
         fs::write(&to, b"changed!").unwrap();
 
         let report = h.undo(batch, false).unwrap();
         assert_eq!(report.skipped.len(), 1);
         assert!(to.exists());
+    }
+
+    #[test]
+    fn undo_restores_replaced_file() {
+        let d = tempfile::tempdir().unwrap();
+        let h = History::open(&d.path().join("h.db"))
+            .unwrap()
+            .with_trash(Trash::new(Some(d.path().join("Trash"))));
+        let src = d.path().join("new.mkv");
+        let dst = d.path().join("Movie.mkv");
+        fs::write(&src, b"new").unwrap();
+        fs::write(&dst, b"old").unwrap();
+        let op = FileOp {
+            from: src.clone(),
+            to: dst.clone(),
+        };
+
+        let batch = h.begin_batch("move", "").unwrap();
+        let id = h.start_op(batch, OpKind::Move, Some(&src), &dst).unwrap();
+        let applied = ops::apply(&op, Action::Move, Some(h.trash())).unwrap();
+        h.finish_op(id, &dst, applied.replaced.as_deref()).unwrap();
+        assert_eq!(h.ops(batch).unwrap()[0].backup, applied.replaced);
+
+        let report = h.undo(batch, false).unwrap();
+        assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+        assert_eq!(fs::read(&src).unwrap(), b"new");
+        assert_eq!(fs::read(&dst).unwrap(), b"old");
+        assert!(fs::read_dir(d.path().join("Trash/files")).unwrap().next().is_none());
+    }
+
+    #[test]
+    fn undo_reverts_comicinfo_and_cover_in_one_batch() {
+        use std::io::Write;
+        let d = tempfile::tempdir().unwrap();
+        let h = History::open(&d.path().join("h.db")).unwrap();
+        let src = d.path().join("in.cbz");
+        let mut z = zip::ZipWriter::new(fs::File::create(&src).unwrap());
+        z.start_file("001.jpg", zip::write::SimpleFileOptions::default()).unwrap();
+        z.write_all(b"img").unwrap();
+        z.finish().unwrap();
+        let to = d.path().join("Manga v01.cbz");
+
+        let batch = h.begin_batch("move", "").unwrap();
+        let id = h.start_op(batch, OpKind::Move, Some(&src), &to).unwrap();
+        ops::move_file(&src, &to).unwrap();
+        h.finish_op(id, &to, None).unwrap();
+        let eid = h.start_op(batch, OpKind::Embed, None, &to).unwrap();
+        let prev = comicinfo::inject(&to, "<ComicInfo/>").unwrap();
+        h.finish_embed(eid, &to, prev.as_deref()).unwrap();
+        let cid = h.start_op(batch, OpKind::Cover, None, &to).unwrap();
+        let entry = cover::embed(&to, b"cover", "jpg").unwrap().unwrap();
+        h.finish_embed(cid, &to, Some(entry.as_bytes())).unwrap();
+        assert_eq!(h.batches(1).unwrap()[0].done, 1, "edits in place are not counted as files");
+
+        let report = h.undo(batch, false).unwrap();
+        assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+        let z = zip::ZipArchive::new(fs::File::open(&src).unwrap()).unwrap();
+        let names: Vec<String> = z.file_names().filter_map(|n| n.ok()).map(|n| n.to_string()).collect();
+        assert_eq!(names, ["001.jpg"]);
+    }
+
+    #[test]
+    fn undo_reverts_embedded_comicinfo() {
+        use std::io::{Read, Write};
+        let d = tempfile::tempdir().unwrap();
+        let h = History::open(&d.path().join("h.db")).unwrap();
+        let src = d.path().join("in.cbz");
+        let mut z = zip::ZipWriter::new(fs::File::create(&src).unwrap());
+        z.start_file("001.jpg", zip::write::SimpleFileOptions::default()).unwrap();
+        z.write_all(b"img").unwrap();
+        z.finish().unwrap();
+        let to = d.path().join("Comic 001.cbz");
+
+        let batch = h.begin_batch("move", "").unwrap();
+        let id = h.start_op(batch, OpKind::Move, Some(&src), &to).unwrap();
+        ops::move_file(&src, &to).unwrap();
+        h.finish_op(id, &to, None).unwrap();
+        let eid = h.start_op(batch, OpKind::Embed, None, &to).unwrap();
+        let prev = comicinfo::inject(&to, "<ComicInfo/>").unwrap();
+        assert_eq!(prev, None);
+        h.finish_embed(eid, &to, prev.as_deref()).unwrap();
+        assert_eq!(h.batches(1).unwrap()[0].done, 1, "embeds are not counted as files");
+
+        let report = h.undo(batch, false).unwrap();
+        assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+        let mut zin = zip::ZipArchive::new(fs::File::open(&src).unwrap()).unwrap();
+        assert_eq!(zin.len(), 1);
+        let mut img = String::new();
+        zin.by_name("001.jpg").unwrap().read_to_string(&mut img).unwrap();
+        assert_eq!(img, "img");
+    }
+
+    #[test]
+    fn migrates_old_databases() {
+        let d = tempfile::tempdir().unwrap();
+        let db = d.path().join("h.db");
+        let old = Connection::open(&db).unwrap();
+        old.execute_batch(
+            "CREATE TABLE ops (id INTEGER PRIMARY KEY, batch INTEGER NOT NULL, kind TEXT NOT NULL,
+             src BLOB, dst BLOB NOT NULL, status TEXT NOT NULL, size INTEGER, mtime_ns INTEGER,
+             overwrote INTEGER NOT NULL DEFAULT 0, error TEXT);",
+        )
+        .unwrap();
+        drop(old);
+        let h = History::open(&db).unwrap();
+        let batch = h.begin_batch("move", "").unwrap();
+        assert!(h.ops(batch).unwrap().is_empty());
     }
 }

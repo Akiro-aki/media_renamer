@@ -22,6 +22,9 @@ fn apply_match_args(opts: &mut Options, m: &MatchArgs) {
     opts.query = m.query.clone();
     opts.forced_id = m.id.clone();
     opts.offline = m.offline;
+    for spec in &m.providers {
+        opts.providers.set(spec);
+    }
 }
 
 pub async fn run(args: RenameArgs, config_path: Option<&Path>) -> Result<ExitCode> {
@@ -48,6 +51,7 @@ pub async fn run(args: RenameArgs, config_path: Option<&Path>) -> Result<ExitCod
         opts.extras.nfo |= args.nfo;
         opts.extras.artwork |= args.artwork;
         opts.extras.comicinfo |= args.comicinfo;
+        opts.extras.embed_cover |= args.embed_cover;
     }
     opts.clean = args.clean;
     opts.interactive = !args.non_interactive && ui::interactive_terminal();
@@ -157,7 +161,7 @@ fn print_preview(preview: &Preview, total: usize) {
         match &row.state {
             RowState::Ready | RowState::Overwrite => {
                 let overwrite = if row.state == RowState::Overwrite {
-                    style(" (overwrites)").red().to_string()
+                    style(" (replaces existing; the old file goes to the trash)").red().to_string()
                 } else {
                     String::new()
                 };
@@ -243,7 +247,7 @@ pub async fn info(args: InfoArgs, config_path: Option<&Path>) -> Result<ExitCode
     if !opts.offline && opts.forced_id.is_none() {
         let query = opts.query.clone().or_else(|| item.info.title.clone());
         if let Some(q) = query {
-            match engine.candidates(item.kind, &q, item.info.year).await {
+            match engine.candidates(item.kind, &q, item.info.year, &opts).await {
                 Ok(c) if !c.is_empty() => {
                     println!("{}", label("Candidates"));
                     for s in c.iter().take(5) {

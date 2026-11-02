@@ -10,6 +10,7 @@ use std::process::ExitCode;
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use mrn_core::MediaKind;
 use mrn_core::ops::{Action, Conflict};
+use mrn_core::config::ProviderSpec;
 use mrn_core::providers::ForcedId;
 
 #[derive(Parser)]
@@ -110,9 +111,14 @@ pub struct MatchArgs {
     /// Search with this title instead of the one in the file name.
     #[arg(short, long)]
     pub query: Option<String>,
-    /// Use this entry instead of searching, e.g. tmdb:1399, anilist:154587.
+    /// Use this entry instead of searching, e.g. tmdb:1399, anilist:154587, mal:52991,
+    /// mangabaka:3397, mangadex:UUID, comicvine:18166.
     #[arg(long, value_parser = parse_forced)]
     pub id: Option<ForcedId>,
+    /// Provider order for this run, e.g. anime=anilist or manga=mangadex,anilist
+    /// (lists: anime, manga, anime_episodes). Repeatable.
+    #[arg(long = "providers", value_name = "LIST=SOURCES", value_parser = parse_order)]
+    pub providers: Vec<ProviderSpec>,
     /// No lookups: name files from what is in the file name.
     #[arg(long)]
     pub offline: bool,
@@ -139,7 +145,7 @@ pub struct RenameArgs {
     /// move, copy, hardlink or symlink.
     #[arg(short, long, value_parser = parse_action)]
     pub action: Option<Action>,
-    /// When a target exists: skip, override or index.
+    /// When a target exists: skip, override (the replaced file goes to the trash) or index.
     #[arg(long, value_parser = parse_conflict)]
     pub conflict: Option<Conflict>,
     /// Minimum confidence (0-1) to accept a match without asking.
@@ -155,8 +161,12 @@ pub struct RenameArgs {
     /// Embed ComicInfo.xml into .cbz files.
     #[arg(long)]
     pub comicinfo: bool,
+    /// Embed each volume's cover into .cbz files (for Kavita). For Komga use
+    /// --artwork with -f komga: covers are saved beside each book instead.
+    #[arg(long)]
+    pub embed_cover: bool,
     /// Turn off extras enabled in the config.
-    #[arg(long, conflicts_with_all = ["nfo", "artwork", "comicinfo"])]
+    #[arg(long, conflicts_with_all = ["nfo", "artwork", "comicinfo", "embed_cover"])]
     pub no_extras: bool,
 
     /// Remove source folders left empty after moving.
@@ -187,6 +197,9 @@ fn parse_kind(s: &str) -> Result<MediaKind, String> {
     s.parse()
 }
 fn parse_forced(s: &str) -> Result<ForcedId, String> {
+    s.parse()
+}
+fn parse_order(s: &str) -> Result<ProviderSpec, String> {
     s.parse()
 }
 fn parse_action(s: &str) -> Result<Action, String> {

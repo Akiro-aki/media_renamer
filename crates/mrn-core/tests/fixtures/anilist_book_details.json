@@ -1,0 +1,259 @@
+{
+ "data": {
+  "Media": {
+   "id": 105398,
+   "status": "FINISHED",
+   "volumes": 15,
+   "chapters": 201,
+   "isAdult": false,
+   "tags": [
+    {
+     "name": "Dungeon",
+     "rank": 95,
+     "isMediaSpoiler": false,
+     "isGeneralSpoiler": false
+    },
+    {
+     "name": "Male Protagonist",
+     "rank": 93,
+     "isMediaSpoiler": false,
+     "isGeneralSpoiler": false
+    },
+    {
+     "name": "Super Power",
+     "rank": 92,
+     "isMediaSpoiler": false,
+     "isGeneralSpoiler": false
+    },
+    {
+     "name": "War",
+     "rank": 90,
+     "isMediaSpoiler": true,
+     "isGeneralSpoiler": false
+    },
+    {
+     "name": "Full Color",
+     "rank": 89,
+     "isMediaSpoiler": false,
+     "isGeneralSpoiler": false
+    },
+    {
+     "name": "Necromancy",
+     "rank": 87,
+     "isMediaSpoiler": false,
+     "isGeneralSpoiler": false
+    },
+    {
+     "name": "Magic",
+     "rank": 86,
+     "isMediaSpoiler": false,
+     "isGeneralSpoiler": false
+    },
+    {
+     "name": "Urban Fantasy",
+     "rank": 84,
+     "isMediaSpoiler": false,
+     "isGeneralSpoiler": false
+    },
+    {
+     "name": "Creature Taming",
+     "rank": 79,
+     "isMediaSpoiler": false,
+     "isGeneralSpoiler": false
+    },
+    {
+     "name": "Gods",
+     "rank": 79,
+     "isMediaSpoiler": true,
+     "isGeneralSpoiler": false
+    },
+    {
+     "name": "Primarily Adult Cast",
+     "rank": 68,
+     "isMediaSpoiler": false,
+     "isGeneralSpoiler": false
+    },
+    {
+     "name": "Long Strip",
+     "rank": 66,
+     "isMediaSpoiler": false,
+     "isGeneralSpoiler": false
+    },
+    {
+     "name": "Politics",
+     "rank": 65,
+     "isMediaSpoiler": false,
+     "isGeneralSpoiler": false
+    },
+    {
+     "name": "Post-Apocalyptic",
+     "rank": 64,
+     "isMediaSpoiler": false,
+     "isGeneralSpoiler": false
+    },
+    {
+     "name": "Demons",
+     "rank": 64,
+     "isMediaSpoiler": false,
+     "isGeneralSpoiler": false
+    },
+    {
+     "name": "Video Games",
+     "rank": 62,
+     "isMediaSpoiler": false,
+     "isGeneralSpoiler": false
+    },
+    {
+     "name": "Tragedy",
+     "rank": 60,
+     "isMediaSpoiler": false,
+     "isGeneralSpoiler": true
+    },
+    {
+     "name": "Foreign",
+     "rank": 59,
+     "isMediaSpoiler": false,
+     "isGeneralSpoiler": false
+    },
+    {
+     "name": "Memory Manipulation",
+     "rank": 59,
+     "isMediaSpoiler": true,
+     "isGeneralSpoiler": false
+    },
+    {
+     "name": "Anti-Hero",
+     "rank": 57,
+     "isMediaSpoiler": false,
+     "isGeneralSpoiler": false
+    },
+    {
+     "name": "Time Manipulation",
+     "rank": 57,
+     "isMediaSpoiler": true,
+     "isGeneralSpoiler": true
+    },
+    {
+     "name": "Age Regression",
+     "rank": 56,
+     "isMediaSpoiler": true,
+     "isGeneralSpoiler": false
+    },
+    {
+     "name": "Heterosexual",
+     "rank": 55,
+     "isMediaSpoiler": false,
+     "isGeneralSpoiler": false
+    },
+    {
+     "name": "Assassins",
+     "rank": 54,
+     "isMediaSpoiler": false,
+     "isGeneralSpoiler": false
+    },
+    {
+     "name": "Chimera",
+     "rank": 53,
+     "isMediaSpoiler": true,
+     "isGeneralSpoiler": false
+    },
+    {
+     "name": "Estranged Family",
+     "rank": 53,
+     "isMediaSpoiler": true,
+     "isGeneralSpoiler": false
+    },
+    {
+     "name": "Language Barrier",
+     "rank": 47,
+     "isMediaSpoiler": true,
+     "isGeneralSpoiler": false
+    },
+    {
+     "name": "Time Skip",
+     "rank": 46,
+     "isMediaSpoiler": true,
+     "isGeneralSpoiler": true
+    },
+    {
+     "name": "Bullying",
+     "rank": 40,
+     "isMediaSpoiler": true,
+     "isGeneralSpoiler": false
+    },
+    {
+     "name": "Snowscape",
+     "rank": 20,
+     "isMediaSpoiler": false,
+     "isGeneralSpoiler": false
+    },
+    {
+     "name": "Marriage",
+     "rank": 16,
+     "isMediaSpoiler": false,
+     "isGeneralSpoiler": false
+    }
+   ],
+   "staff": {
+    "edges": [
+     {
+      "role": "Story (chs 1-92)",
+      "node": {
+       "name": {
+        "full": "So-Ryeong Gi"
+       }
+      }
+     },
+     {
+      "role": "Story (chs 93-201)",
+      "node": {
+       "name": {
+        "full": "Hyeon-Gun"
+       }
+      }
+     },
+     {
+      "role": "Art (chs 1-179)",
+      "node": {
+       "name": {
+        "full": "Seong-Rak Jang"
+       }
+      }
+     },
+     {
+      "role": "Art (chs 180-200)",
+      "node": {
+       "name": {
+        "full": "DISCIPLES"
+       }
+      }
+     },
+     {
+      "role": "Original Story",
+      "node": {
+       "name": {
+        "full": "Chu-Gong"
+       }
+      }
+     },
+     {
+      "role": "Translator (Polish)",
+      "node": {
+       "name": {
+        "full": "Adrianna Jarzębowska"
+       }
+      }
+     },
+     {
+      "role": "Lettering (English)",
+      "node": {
+       "name": {
+        "full": "Abigail Blackman"
+       }
+      }
+     }
+    ]
+   }
+  }
+ }
+}

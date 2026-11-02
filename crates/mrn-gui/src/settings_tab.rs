@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use iced::widget::{Column, button, checkbox, column, row, text, text_input};
 use iced::{Center, Element, Fill, Task};
-use mrn_core::config::{Config, save_api_keys};
+use mrn_core::config::{Config, ProviderOrder, save_api_keys};
 
 use crate::widgets::{bad, card, dim, ok, warn};
 use crate::worker::blocking;
@@ -25,6 +25,8 @@ pub struct State {
     tmdb: String,
     comicvine: String,
     show: bool,
+    /// Search order from the config file, shown read-only.
+    providers: Option<ProviderOrder>,
     message: Option<Result<String, String>>,
 }
 
@@ -35,6 +37,7 @@ impl State {
             tmdb: String::new(),
             comicvine: String::new(),
             show: false,
+            providers: None,
             message: None,
         };
         s.reload();
@@ -48,6 +51,7 @@ impl State {
             Ok(c) => {
                 self.tmdb = c.api.tmdb.unwrap_or_default();
                 self.comicvine = c.api.comicvine.unwrap_or_default();
+                self.providers = Some(c.providers);
             }
             Err(e) => self.message = Some(Err(format!("{e:#}"))),
         }
@@ -94,7 +98,7 @@ impl State {
         let mut keys = Column::new().spacing(10).push(text("API keys").size(18)).push(
             row![
                 label("TMDB"),
-                text_input("Needed for movies and TV, and anime episode titles", &self.tmdb)
+                text_input("Needed for movies and TV; optional for anime episode titles", &self.tmdb)
                     .on_input(Msg::Tmdb)
                     .secure(!self.show)
                     .width(Fill),
@@ -102,7 +106,10 @@ impl State {
             .spacing(8)
             .align_y(Center),
         );
-        keys = keys.push(dim("Free key: themoviedb.org → Settings → API. A v3 key or a v4 read token both work."));
+        keys = keys.push(dim(
+            "Free key: themoviedb.org → Settings → API. A v3 key or a v4 read token both work. \
+             Without one, anime episode titles come from MyAnimeList.",
+        ));
         if std::env::var_os("TMDB_API_KEY").is_some() {
             keys = keys.push(text("TMDB_API_KEY is set in the environment and overrides this value.").size(13).style(warn));
         }
@@ -144,13 +151,34 @@ impl State {
             .as_ref()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| "unknown".into());
-        let config = column![
+        let mut config = column![
             text("Configuration file").size(18),
             text(path).size(14).font(iced::Font::MONOSPACE),
-            dim("Library folders per media type, naming templates, language, title language and defaults live here."),
-            button("Open in editor").style(button::secondary).on_press(Msg::OpenConfig),
+            dim("Library folders per media type, naming templates, language, title language, \
+                 provider order and defaults live here."),
         ]
         .spacing(8);
+        if let Some(p) = &self.providers {
+            let list = |s: &[mrn_core::providers::Source]| {
+                if s.is_empty() {
+                    "none".to_string()
+                } else {
+                    s.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(" → ")
+                }
+            };
+            for (name, sources) in [
+                ("Anime search", &p.anime),
+                ("Manga search", &p.manga),
+                ("Episode titles", &p.anime_episodes),
+            ] {
+                config = config.push(
+                    row![label(name), text(list(sources)).size(14)]
+                        .spacing(8)
+                        .align_y(Center),
+                );
+            }
+        }
+        config = config.push(button("Open in editor").style(button::secondary).on_press(Msg::OpenConfig));
 
         column![card(keys), card(config)].spacing(14).into()
     }

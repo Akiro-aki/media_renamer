@@ -7,8 +7,8 @@ layout for Jellyfin, Plex, Kodi, Kavita or Komga.
 | Media  | Matched with | API key |
 |--------|--------------|---------|
 | Movies, TV | [TMDB](https://www.themoviedb.org/settings/api) | free key needed |
-| Anime  | AniList (episode titles via TMDB when a key is set) | none |
-| Manga  | AniList, MangaDex as fallback | none |
+| Anime  | AniList, then MyAnimeList (via [Jikan](https://jikan.moe)); episode titles from TMDB when a key is set, else MyAnimeList | none |
+| Manga  | AniList, then [MangaBaka](https://mangabaka.org), then MangaDex; volume covers from MangaDex | none |
 | Comics | [ComicVine](https://comicvine.gamespot.com/api/) | free key; without one, files are named from the file name |
 
 ## Graphical interface
@@ -99,11 +99,12 @@ Useful flags for `rename`:
 |------|---------|
 | `-o DIR` | library root; without it files are renamed in place |
 | `-t TYPE` | force `movie`, `tv`, `anime`, `comic` or `manga` |
-| `-q TITLE` / `--id tmdb:1399` | search a different title, or use a specific entry (`tmdb`, `anilist`, `mangadex`, `comicvine`) |
+| `-q TITLE` / `--id tmdb:1399` | search a different title, or use a specific entry (`tmdb`, `anilist`, `mal`, `mangabaka`, `mangadex`, `comicvine`) |
+| `--providers LIST=SOURCES` | search order for this run, e.g. `manga=mangabaka,anilist` (lists: `anime`, `manga`, `anime_episodes`) |
 | `-f PRESET\|TEMPLATE` | `jellyfin` (default), `plex`, `kodi`, `anime`, `kavita`, `komga`, or a template |
 | `-a ACTION` | `move` (default), `copy`, `hardlink`, `symlink` |
-| `--conflict` | `skip` (default), `override`, `index` (`Name (1).mkv`) |
-| `--nfo` `--artwork` `--comicinfo` | opt-in extras (see below) |
+| `--conflict` | `skip` (default), `override` (the replaced file goes to the trash), `index` (`Name (1).mkv`) |
+| `--nfo` `--artwork` `--comicinfo` `--embed-cover` | opt-in extras (see below) |
 | `--offline` | no lookups; tidy names from the file name only |
 | `--clean` | remove source folders left empty |
 | `-n` / `-y` | dry run / don't ask for confirmation |
@@ -119,18 +120,45 @@ Subtitles and other sidecar files (`Name.en.srt`, `Name.nfo`, …) move with the
 - `{n}` name, `{y}` year, `{s}` season, `{e}` episode, `{s00e00}`, `{sxe}`, `{abs}` absolute episode,
   `{t}` episode/issue title, `{d}` air date, `{vol}`, `{ch}`, `{issue}`, `{vf}` resolution,
   `{vs}` source, `{vc}`/`{ac}` codecs, `{group}`, `{crc}`, `{id}`, `{tmdbid}`, `{anilistid}`,
-  `{publisher}`, `{orig}` original file name.
+  `{malid}`, `{mangabakaid}` (also filled from cross-site ids, e.g. `{malid}` for an AniList match),
+  `{source}`, `{publisher}`, `{orig}` original file name.
 - `{s:02}` zero-pads; `{n:upper}`, `{n:lower}`, `{n:first}` (first letter, for A–Z folders).
 - `[ … ]` is optional: it's dropped when a field inside it has no value.
 - `\[` `\]` `\{` `\}` are literal brackets. `/` separates folders. The extension is added for you.
 
 Set per-kind templates under `[format]` in the config.
 
+## Providers
+
+Anime and manga are searched in the order set under `[providers]` in the config;
+the first confident match wins. `--providers` overrides it for one run, and the
+GUI's Settings tab shows the current order.
+
+```toml
+[providers]
+anime = ["anilist", "mal"]
+manga = ["anilist", "mangabaka", "mangadex"]
+# Where anime episode titles ({t}) come from: each source fills the gaps of the one before.
+anime_episodes = ["tmdb", "mal"]
+```
+
+Later anime seasons that AniList and MyAnimeList list as separate entries are
+found through AniList's sequel links, so `Show S02E03` or `Show - 31` gets the
+right title. A host that can't be reached is skipped for 5 minutes, so the
+next source answers instead of waiting.
+
 ## Extras (off by default)
 
 - `--nfo`: Kodi/Jellyfin `movie.nfo`/`tvshow.nfo`/episode `.nfo`.
 - `--artwork`: posters, fanart, season posters, comic/manga `cover.jpg`.
-- `--comicinfo`: ComicInfo.xml embedded into `.cbz` (`.cbr` can't be written).
+- `--comicinfo`: ComicInfo.xml embedded into `.cbz` (`.cbr` can't be written), with the series'
+  genres, tags, writers and artists, total count (finished series) and age rating for Kavita and Komga.
+- Volume covers (manga from MangaDex, comic issues from ComicVine):
+  - **Kavita:** `--embed-cover` puts the cover inside each `.cbz` as its first page (`!cover.jpg`),
+    unless the archive already has a cover image. Kavita only reads covers from inside the archive.
+  - **Komga:** `--artwork -f komga` saves it beside each book (`Vol 01.jpg` next to `Vol 01.cbz`),
+    which Komga prefers; the archive is not touched. Don't do this for Kavita: it would list the
+    image as an extra chapter.
 
 Series-level files (`tvshow.nfo`, `poster.jpg`, `cover.jpg`) are only written
 inside a library root (`-o` or `[output]`), never into your downloads folder.
@@ -141,10 +169,16 @@ under `[extras]` in the config; `--no-extras` turns them off for one run.
 
 Every operation is logged to `~/.local/share/mrn/history.db` before it runs.
 `mrn undo [BATCH]` moves files back, deletes created links, copies and extras,
-and removes folders the batch created. Files changed since the rename are left
-alone unless you pass `--force`. Limits: a file replaced with
-`--conflict override` can't be restored, and ComicInfo.xml stays inside a cbz
-that is moved back.
+removes ComicInfo.xml it embedded (restoring an older one), and removes folders
+the batch created. Files changed since the rename are left alone unless you
+pass `--force`.
+
+A file replaced with `--conflict override` is moved to the trash (the one on
+the same disk, so nothing is copied), where your file manager can also restore
+it. `mrn undo` puts it back.
+
+Renames that depend on each other in one batch (A→B while B→C) run in the right
+order; two files that would trade names are skipped.
 
 Moves across filesystems (e.g. from an NTFS or network mount into your home)
 fall back to copy-and-delete, and undo works the same way.

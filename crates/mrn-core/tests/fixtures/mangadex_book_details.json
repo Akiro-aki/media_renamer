@@ -1,0 +1,116 @@
+{
+ "result": "ok",
+ "data": {
+  "id": "a77742b1-befd-49a4-bff5-1ad4e6b0ef7b",
+  "type": "manga",
+  "attributes": {
+   "title": {
+    "ja-ro": "Chainsaw Man"
+   },
+   "status": "completed",
+   "contentRating": "suggestive",
+   "lastVolume": "",
+   "lastChapter": "232",
+   "tags": [
+    {
+     "id": "0a39b5a1-b235-4886-a747-1d05d216532d",
+     "type": "tag",
+     "attributes": {
+      "name": {
+       "en": "Award Winning"
+      },
+      "group": "format"
+     }
+    },
+    {
+     "id": "36fd93ea-e8b8-445e-b836-358f02b3d33d",
+     "type": "tag",
+     "attributes": {
+      "name": {
+       "en": "Monsters"
+      },
+      "group": "theme"
+     }
+    },
+    {
+     "id": "391b0423-d847-456f-aff0-8b0cfc03066b",
+     "type": "tag",
+     "attributes": {
+      "name": {
+       "en": "Action"
+      },
+      "group": "genre"
+     }
+    },
+    {
+     "id": "39730448-9a5f-48a2-85b0-a70db87b1233",
+     "type": "tag",
+     "attributes": {
+      "name": {
+       "en": "Demons"
+      },
+      "group": "theme"
+     }
+    },
+    {
+     "id": "4d32cc48-9f00-4cca-9b5a-a839f0764984",
+     "type": "tag",
+     "attributes": {
+      "name": {
+       "en": "Comedy"
+      },
+      "group": "genre"
+     }
+    },
+    {
+     "id": "b29d6a3d-1569-4e7a-8caf-7557bc92cd5d",
+     "type": "tag",
+     "attributes": {
+      "name": {
+       "en": "Gore"
+      },
+      "group": "content"
+     }
+    },
+    {
+     "id": "cdad7e68-1419-41dd-bdce-27753074a640",
+     "type": "tag",
+     "attributes": {
+      "name": {
+       "en": "Horror"
+      },
+      "group": "genre"
+     }
+    },
+    {
+     "id": "eabc5b4c-6aff-42f3-b657-3e90cbd00b75",
+     "type": "tag",
+     "attributes": {
+      "name": {
+       "en": "Supernatural"
+      },
+      "group": "theme"
+     }
+    }
+   ],
+   "year": 2018,
+   "originalLanguage": "ja"
+  },
+  "relationships": [
+   {
+    "id": "f85a5b93-3c87-4c61-9032-07ceacbb9e64",
+    "type": "author",
+    "attributes": {
+     "name": "Fujimoto Tatsuki"
+    }
+   },
+   {
+    "id": "f85a5b93-3c87-4c61-9032-07ceacbb9e64",
+    "type": "artist",
+    "attributes": {
+     "name": "Fujimoto Tatsuki"
+    }
+   }
+  ]
+ }
+}

@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::MediaKind;
 use crate::ops::{Action, Conflict};
+use crate::providers::Source;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -17,6 +18,7 @@ pub struct Config {
     pub output: PerKind<PathBuf>,
     pub format: PerKind<String>,
     pub extras: Extras,
+    pub providers: ProviderOrder,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -83,6 +85,150 @@ pub struct Extras {
     pub artwork: bool,
     /// Embed ComicInfo.xml into .cbz archives (comics, manga).
     pub comicinfo: bool,
+    /// Embed each volume's cover into .cbz archives (for Kavita).
+    pub embed_cover: bool,
+}
+
+/// `[providers]`: which sources are searched, in order, for kinds with
+/// more than one. Movies and TV always use TMDB, comics ComicVine.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ProviderOrder {
+    pub anime: Vec<Source>,
+    pub manga: Vec<Source>,
+    /// Where anime episode titles come from, in order.
+    pub anime_episodes: Vec<Source>,
+}
+
+impl Default for ProviderOrder {
+    fn default() -> Self {
+        Self {
+            anime: vec![Source::Anilist, Source::Mal],
+            manga: vec![Source::Anilist, Source::Mangabaka, Source::Mangadex],
+            anime_episodes: vec![Source::Tmdb, Source::Mal],
+        }
+    }
+}
+
+/// One list in [`ProviderOrder`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OrderList {
+    Anime,
+    Manga,
+    AnimeEpisodes,
+}
+
+impl OrderList {
+    pub const ALL: [OrderList; 3] = [OrderList::Anime, OrderList::Manga, OrderList::AnimeEpisodes];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            OrderList::Anime => "anime",
+            OrderList::Manga => "manga",
+            OrderList::AnimeEpisodes => "anime_episodes",
+        }
+    }
+
+    fn allows(self, source: Source) -> bool {
+        match self {
+            OrderList::Anime => source.searches(MediaKind::Anime),
+            OrderList::Manga => source.searches(MediaKind::Manga),
+            OrderList::AnimeEpisodes => source.lists_anime_episodes(),
+        }
+    }
+
+    /// Check one list: known sources that fit the list, no duplicates.
+    /// Only `anime_episodes` may be empty (no episode titles).
+    pub fn check(self, sources: &[Source]) -> Result<(), String> {
+        let name = self.as_str();
+        if sources.is_empty() && self != OrderList::AnimeEpisodes {
+            return Err(format!("providers.{name} is empty"));
+        }
+        for (i, s) in sources.iter().enumerate() {
+            if !self.allows(*s) {
+                let fits: Vec<&str> = [
+                    Source::Tmdb,
+                    Source::Anilist,
+                    Source::Mal,
+                    Source::Mangadex,
+                    Source::Mangabaka,
+                    Source::Comicvine,
+                ]
+                .into_iter()
+                .filter(|s| self.allows(*s))
+                .map(Source::as_str)
+                .collect();
+                return Err(format!(
+                    "providers.{name}: '{s}' can't be used here (use {})",
+                    fits.join(", ")
+                ));
+            }
+            if sources[..i].contains(s) {
+                return Err(format!("providers.{name}: '{s}' is listed twice"));
+            }
+        }
+        Ok(())
+    }
+}
+
+impl std::str::FromStr for OrderList {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_ascii_lowercase().replace('-', "_").as_str() {
+            "anime" => Ok(OrderList::Anime),
+            "manga" => Ok(OrderList::Manga),
+            "anime_episodes" | "episodes" => Ok(OrderList::AnimeEpisodes),
+            o => Err(format!("unknown provider list '{o}' (anime, manga, anime_episodes)")),
+        }
+    }
+}
+
+impl ProviderOrder {
+    pub fn get(&self, list: OrderList) -> &[Source] {
+        match list {
+            OrderList::Anime => &self.anime,
+            OrderList::Manga => &self.manga,
+            OrderList::AnimeEpisodes => &self.anime_episodes,
+        }
+    }
+
+    pub fn set(&mut self, spec: &ProviderSpec) {
+        let slot = match spec.list {
+            OrderList::Anime => &mut self.anime,
+            OrderList::Manga => &mut self.manga,
+            OrderList::AnimeEpisodes => &mut self.anime_episodes,
+        };
+        *slot = spec.sources.clone();
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        OrderList::ALL.iter().try_for_each(|l| l.check(self.get(*l)))
+    }
+}
+
+/// A per-run override such as `anime=mal,anilist` (`--providers`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderSpec {
+    pub list: OrderList,
+    pub sources: Vec<Source>,
+}
+
+impl std::str::FromStr for ProviderSpec {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (list, sources) = s
+            .split_once('=')
+            .ok_or_else(|| format!("expected LIST=SOURCES (e.g. anime=mal,anilist), got '{s}'"))?;
+        let list: OrderList = list.parse()?;
+        let sources = sources
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::parse)
+            .collect::<Result<Vec<Source>, _>>()?;
+        list.check(&sources)?;
+        Ok(ProviderSpec { list, sources })
+    }
 }
 
 /// One optional value per media kind.
@@ -149,6 +295,10 @@ impl Config {
     /// Environment variables override file values.
     pub fn load(path: Option<&Path>) -> Result<Config> {
         let mut config = Self::load_file(path)?;
+        config
+            .providers
+            .validate()
+            .map_err(|e| anyhow::anyhow!("{e} (in the [providers] section of the config)"))?;
         config.apply_env();
         config.expand_paths();
         Ok(config)
@@ -283,5 +433,42 @@ mod tests {
         let c: Config = toml::from_str(Config::template()).unwrap();
         assert_eq!(c.general.preset, "jellyfin");
         assert!(!c.extras.artwork);
+        assert_eq!(c.providers, ProviderOrder::default());
+    }
+
+    #[test]
+    fn provider_order() {
+        let load = |text: &str| {
+            let d = tempfile::tempdir().unwrap();
+            let path = d.path().join("config.toml");
+            std::fs::write(&path, text).unwrap();
+            Config::load(Some(&path)).map_err(|e| format!("{e:#}"))
+        };
+        let c = load("[providers]\nanime = [\"myanimelist\", \"anilist\"]\n").unwrap();
+        assert_eq!(c.providers.anime, [Source::Mal, Source::Anilist]);
+        assert_eq!(c.providers.manga, ProviderOrder::default().manga, "unset lists keep defaults");
+
+        for (text, needle) in [
+            ("anime = [\"nope\"]", "unknown variant"),
+            ("anime = [\"comicvine\"]", "'comicvine' can't be used here (use anilist, mal)"),
+            ("manga = [\"anilist\", \"anilist\"]", "listed twice"),
+            ("manga = []", "providers.manga is empty"),
+            ("anime_episodes = [\"anilist\"]", "use tmdb, mal"),
+            ("movie = [\"tmdb\"]", "unknown field"),
+        ] {
+            let err = load(&format!("[providers]\n{text}\n")).unwrap_err();
+            assert!(err.contains(needle), "{text}: {err}");
+        }
+        assert!(load("[providers]\nanime_episodes = []\n").is_ok());
+
+        let spec: ProviderSpec = "anime=mal, anilist".parse().unwrap();
+        let mut order = ProviderOrder::default();
+        order.set(&spec);
+        assert_eq!(order.anime, [Source::Mal, Source::Anilist]);
+        let spec: ProviderSpec = "anime-episodes=mal".parse().unwrap();
+        assert_eq!(spec.list, OrderList::AnimeEpisodes);
+        assert!("anime".parse::<ProviderSpec>().is_err());
+        assert!("comic=comicvine".parse::<ProviderSpec>().is_err());
+        assert!("manga=tmdb".parse::<ProviderSpec>().is_err());
     }
 }
