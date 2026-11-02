@@ -699,6 +699,7 @@ impl Engine {
                 break;
             }
             let found = match source {
+                Source::Tvdb => self.tvdb_series_by_title(c).await,
                 Source::Tmdb => self.tmdb_series_by_title(c).await,
                 Source::Mal => self.mal_series(c, files).await,
                 _ => Ok(None),
@@ -812,6 +813,31 @@ impl Engine {
             absolute = absolute.map(|a| a + count);
         }
         Ok(Some(out))
+    }
+
+    /// TheTVDB episode list for an anime from another source, found by title
+    /// like on TMDB. Skipped without a TheTVDB key.
+    async fn tvdb_series_by_title(&self, c: &Candidate) -> Result<Option<SeriesInfo>> {
+        let Some(tvdb) = &self.providers.tvdb else {
+            return Ok(None);
+        };
+        let mut queries: Vec<&str> = Vec::new();
+        for q in c.english_title.iter().chain(std::iter::once(&c.title)) {
+            if !queries.contains(&q.as_str()) {
+                queries.push(q);
+            }
+        }
+        for q in queries {
+            let found = tvdb.search_series(q).await?;
+            let ranked = matcher::rank(q, c.year, found);
+            if let Some(best) = ranked.first()
+                && best.score >= CROSS_REF_THRESHOLD
+            {
+                tracing::debug!("anime '{}' → TheTVDB '{}'", c.title, best.candidate.label());
+                return Ok(Some(tvdb.series(&best.candidate.id).await?));
+            }
+        }
+        Ok(None)
     }
 
     /// TMDB episode list for an anime from another source, found by title.
@@ -1248,11 +1274,19 @@ fn covers(series: &SeriesInfo, files: &[ParsedInfo]) -> bool {
     })
 }
 
-/// `primary` plus the episodes of `extra` it doesn't have. Where both have
+/// `primary` plus the episodes of `extra` it doesn't have, and titles for
+/// its untitled episodes (TheTVDB may lack a translation). Where both have
 /// an absolute number, `primary`'s numbering wins.
 fn merge_series(mut primary: SeriesInfo, extra: SeriesInfo) -> SeriesInfo {
     for mut e in extra.episodes {
-        if primary.by_season_episode(e.season, e.episode).is_some() {
+        if let Some(p) = primary
+            .episodes
+            .iter_mut()
+            .find(|p| p.season == e.season && p.episode == e.episode)
+        {
+            if p.title.is_none() {
+                p.title = e.title;
+            }
             continue;
         }
         if e.absolute.is_some_and(|a| primary.by_absolute(a).is_some()) {

@@ -7,7 +7,7 @@ layout for Jellyfin, Plex, Kodi, Kavita or Komga.
 | Media  | Matched with | API key |
 |--------|--------------|---------|
 | Movies, TV | [TMDB](https://www.themoviedb.org/settings/api) | free key needed |
-| Anime  | AniList, then MyAnimeList (via [Jikan](https://jikan.moe)); episode titles from TMDB when a key is set, else MyAnimeList | none |
+| Anime  | AniList; episode titles from [TheTVDB](https://thetvdb.com/api-information) and/or TMDB when their keys are set (MyAnimeList can be added, see [Providers](#providers)) | none to match; a TheTVDB or TMDB key for episode titles |
 | Manga  | AniList, then [MangaBaka](https://mangabaka.org), then MangaDex; volume covers from MangaDex | none |
 | Comics | [ComicVine](https://comicvine.gamespot.com/api/) | free key; without one, files are named from the file name |
 
@@ -76,7 +76,9 @@ mrn config init
 
 The GUI needs a Vulkan or OpenGL driver and Wayland or X11 at runtime; nothing extra at build time.
 
-Put your keys in the config file, or set `TMDB_API_KEY` and `COMICVINE_API_KEY`.
+Put your keys in the config file (or the GUI's Settings tab), or set `TMDB_API_KEY`,
+`COMICVINE_API_KEY`, `TVDB_API_KEY` and `TVDB_PIN`. TheTVDB keys come from your account
+dashboard on thetvdb.com; the PIN is only needed for keys that ask for a subscriber PIN.
 
 ## Usage
 
@@ -136,16 +138,24 @@ GUI's Settings tab shows the current order.
 
 ```toml
 [providers]
-anime = ["anilist", "mal"]
+anime = ["anilist"]
 manga = ["anilist", "mangabaka", "mangadex"]
 # Where anime episode titles ({t}) come from: each source fills the gaps of the one before.
-anime_episodes = ["tmdb", "mal"]
+anime_episodes = ["tvdb", "tmdb"]
 ```
 
-Later anime seasons that AniList and MyAnimeList list as separate entries are
-found through AniList's sequel links, so `Show S02E03` or `Show - 31` gets the
-right title. A host that can't be reached is skipped for 5 minutes, so the
-next source answers instead of waiting.
+TheTVDB numbers anime in the seasons Sonarr, Plex and Jellyfin expect, so it
+comes first; sources without a key are skipped. An anime is found on TheTVDB
+and TMDB by its English or romaji title.
+
+MyAnimeList, through the unofficial [Jikan](https://jikan.moe) API, is available
+but not in the defaults: add `"mal"` to `anime` (search fallback) or
+`anime_episodes` (episode titles without a TMDB key). With it, later seasons
+that AniList and MyAnimeList list as separate entries are found through
+AniList's sequel links, so `Show S02E03` or `Show - 31` gets the right title.
+
+A host that can't be reached is skipped for 5 minutes, so the next source
+answers instead of waiting.
 
 ## Extras (off by default)
 
@@ -182,6 +192,14 @@ order; two files that would trade names are skipped.
 
 Moves across filesystems (e.g. from an NTFS or network mount into your home)
 fall back to copy-and-delete, and undo works the same way.
+
+## Credits
+
+Metadata provided by [TheTVDB](https://thetvdb.com). Please consider adding missing
+information or subscribing. Also [TMDB](https://www.themoviedb.org) (this product uses the
+TMDB API but is not endorsed or certified by TMDB), [AniList](https://anilist.co),
+[MangaBaka](https://mangabaka.org), [MangaDex](https://mangadex.org),
+[ComicVine](https://comicvine.gamespot.com) and MyAnimeList via [Jikan](https://jikan.moe).
 
 ## Development
 
