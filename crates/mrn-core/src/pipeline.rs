@@ -13,7 +13,7 @@ use futures::StreamExt;
 
 use crate::MediaKind;
 use crate::cache::Cache;
-use crate::config::{Config, Extras};
+use crate::config::{Config, Extras, ProviderOrder};
 use crate::detect::{detect, resolve_book_numbers};
 use crate::extras::{self, ExtraContent, ExtraContext, comicinfo};
 use crate::format::{Fields, Formatter};
@@ -51,6 +51,8 @@ pub struct Options {
     pub extras: Extras,
     /// Remove source folders left empty after moving.
     pub clean: bool,
+    /// Search order for anime and manga, and where anime episode titles come from.
+    pub providers: ProviderOrder,
 }
 
 impl Options {
@@ -68,6 +70,7 @@ impl Options {
             threshold: config.general.threshold,
             extras: config.extras.clone(),
             clean: false,
+            providers: config.providers.clone(),
         }
     }
 }
@@ -306,7 +309,7 @@ impl Engine {
         }
         let series: Vec<(usize, Result<Option<SeriesInfo>>)> =
             futures::stream::iter(series_jobs.into_iter().map(|(gi, kind, c)| async move {
-                (gi, self.series_for(kind, &c).await)
+                (gi, self.series_for(kind, &c, &opts.providers.anime_episodes).await)
             }))
             .buffer_unordered(concurrency)
             .collect()
@@ -436,11 +439,11 @@ impl Engine {
                 Err(e) => GroupState::Failed(format!("{e:#}")),
             });
         }
-        if self.providers.for_kind(g.kind).is_empty() {
+        if self.providers.for_kind(g.kind, &opts.providers).is_empty() {
             let reason = self
                 .providers
                 .missing_reason(g.kind)
-                .unwrap_or("no metadata provider")
+                .unwrap_or("none of the configured metadata providers is available (see [providers] in the config)")
                 .to_string();
             // Comics still get a tidy name from the parsed filename.
             return if g.kind == MediaKind::Comic {
@@ -449,7 +452,7 @@ impl Engine {
                 Ok(GroupState::Failed(reason))
             };
         }
-        match self.search(g.kind, &g.query, g.year, opts.threshold).await {
+        match self.search(g.kind, &g.query, g.year, opts.threshold, &opts.providers).await {
             Ok(SearchResult {
                 accepted: Some(best),
                 ..
@@ -501,7 +504,7 @@ impl Engine {
                 }
                 Choice::Pick(_) | Choice::Skip => return GroupState::Failed("skipped".into()),
                 // Keep the file's year so ranking still prefers the right release.
-                Choice::Search(q) => match self.search(g.kind, &q, g.year, f64::INFINITY).await {
+                Choice::Search(q) => match self.search(g.kind, &q, g.year, f64::INFINITY, &opts.providers).await {
                     Ok(r) => candidates = r.candidates,
                     Err(e) => {
                         tracing::warn!("search failed: {e:#}");
@@ -514,10 +517,17 @@ impl Engine {
 
     /// Search the providers for `kind` in priority order. A candidate scoring
     /// at least `accept` ends the search early.
-    async fn search(&self, kind: MediaKind, query: &str, year: Option<u16>, accept: f64) -> Result<SearchResult> {
+    async fn search(
+        &self,
+        kind: MediaKind,
+        query: &str,
+        year: Option<u16>,
+        accept: f64,
+        order: &ProviderOrder,
+    ) -> Result<SearchResult> {
         let mut all: Vec<Scored> = Vec::new();
         let mut errors = Vec::new();
-        for p in self.providers.for_kind(kind) {
+        for p in self.providers.for_kind(kind, order) {
             match p.search(query, year, kind).await {
                 Ok(found) => {
                     let ranked = matcher::rank(query, year, found);
@@ -546,8 +556,17 @@ impl Engine {
     }
 
     /// Ranked candidates for a title across all providers (for `mrn info`).
-    pub async fn candidates(&self, kind: MediaKind, query: &str, year: Option<u16>) -> Result<Vec<Scored>> {
-        Ok(self.search(kind, query, year, f64::INFINITY).await?.candidates)
+    pub async fn candidates(
+        &self,
+        kind: MediaKind,
+        query: &str,
+        year: Option<u16>,
+        opts: &Options,
+    ) -> Result<Vec<Scored>> {
+        Ok(self
+            .search(kind, query, year, f64::INFINITY, &opts.providers)
+            .await?
+            .candidates)
     }
 
     pub async fn lookup(&self, forced: &ForcedId, kind: MediaKind) -> Result<Candidate> {
@@ -557,35 +576,68 @@ impl Engine {
             .await
     }
 
-    /// Episode list for a matched series. AniList has no episode titles, so
-    /// anime is cross-referenced with TMDB by title when a key is available.
-    async fn series_for(&self, kind: MediaKind, c: &Candidate) -> Result<Option<SeriesInfo>> {
+    /// Episode list for a matched series. TMDB shows have their own. AniList
+    /// has no episode titles, so anime walks `episode_sources` (`[providers]
+    /// anime_episodes`) until one returns episodes.
+    async fn series_for(
+        &self,
+        kind: MediaKind,
+        c: &Candidate,
+        episode_sources: &[Source],
+    ) -> Result<Option<SeriesInfo>> {
+        if c.source() == Source::Tmdb {
+            return match &self.providers.tmdb {
+                Some(tmdb) => Ok(Some(tmdb.series(c).await?)),
+                None => Ok(None),
+            };
+        }
+        if kind != MediaKind::Anime {
+            return Ok(None);
+        }
+        let mut error = None;
+        for &source in episode_sources {
+            let found = match source {
+                Source::Tmdb => self.tmdb_series_by_title(c).await,
+                // The MAL provider comes in phase 1 of docs/PLAN-providers.md.
+                _ => Ok(None),
+            };
+            match found {
+                Ok(Some(s)) if !s.episodes.is_empty() => return Ok(Some(s)),
+                Ok(_) => {}
+                Err(e) => {
+                    tracing::warn!("{source} episode list for '{}': {e:#}", c.title);
+                    error = Some(e);
+                }
+            }
+        }
+        match error {
+            Some(e) => Err(e),
+            None => Ok(None),
+        }
+    }
+
+    /// TMDB episode list for an anime from another source, found by title.
+    async fn tmdb_series_by_title(&self, c: &Candidate) -> Result<Option<SeriesInfo>> {
         let Some(tmdb) = &self.providers.tmdb else {
             return Ok(None);
         };
-        match c.source() {
-            Source::Tmdb => Ok(Some(tmdb.series(c).await?)),
-            Source::Anilist if kind == MediaKind::Anime => {
-                let mut queries: Vec<&str> = Vec::new();
-                for q in c.english_title.iter().chain(std::iter::once(&c.title)) {
-                    if !queries.contains(&q.as_str()) {
-                        queries.push(q);
-                    }
-                }
-                for q in queries {
-                    let found = tmdb.search(q, c.year, MediaKind::Tv).await?;
-                    let ranked = matcher::rank(q, c.year, found);
-                    if let Some(best) = ranked.first()
-                        && best.score >= CROSS_REF_THRESHOLD
-                    {
-                        tracing::debug!("anime '{}' → TMDB '{}'", c.title, best.candidate.label());
-                        return Ok(Some(tmdb.series(&best.candidate).await?));
-                    }
-                }
-                Ok(None)
+        let mut queries: Vec<&str> = Vec::new();
+        for q in c.english_title.iter().chain(std::iter::once(&c.title)) {
+            if !queries.contains(&q.as_str()) {
+                queries.push(q);
             }
-            _ => Ok(None),
         }
+        for q in queries {
+            let found = tmdb.search(q, c.year, MediaKind::Tv).await?;
+            let ranked = matcher::rank(q, c.year, found);
+            if let Some(best) = ranked.first()
+                && best.score >= CROSS_REF_THRESHOLD
+            {
+                tracing::debug!("anime '{}' → TMDB '{}'", c.title, best.candidate.label());
+                return Ok(Some(tmdb.series(&best.candidate).await?));
+            }
+        }
+        Ok(None)
     }
 
     /// Resolve target conflicts for every named item.
@@ -821,6 +873,15 @@ fn find_episodes(series: &SeriesInfo, info: &ParsedInfo) -> Vec<Episode> {
     Vec::new()
 }
 
+/// Template fields holding an entry's id on one site, from the match itself
+/// or its cross-site ids.
+const ID_FIELDS: [(&str, Source); 4] = [
+    ("tmdbid", Source::Tmdb),
+    ("anilistid", Source::Anilist),
+    ("malid", Source::Mal),
+    ("mangabakaid", Source::Mangabaka),
+];
+
 /// Template fields for one file.
 pub fn build_fields(
     file: &MediaFile,
@@ -844,10 +905,8 @@ pub fn build_fields(
     if let Some(c) = c {
         f.set_text("id", Some(c.id.clone()));
         f.set_text("source", Some(c.source().as_str()));
-        match c.source() {
-            Source::Tmdb => f.set_text("tmdbid", Some(c.id.clone())),
-            Source::Anilist => f.set_text("anilistid", Some(c.id.clone())),
-            _ => {}
+        for (field, source) in ID_FIELDS {
+            f.set_text(field, c.id_for(source).map(String::from));
         }
         f.set_text("publisher", c.publisher.clone());
     }

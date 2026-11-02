@@ -37,13 +37,22 @@ concurrency = 4
 # Custom templates per kind override the preset. Fields:
 #   {n} name  {y} year  {s} season  {e} episode  {s00e00}  {sxe}  {abs} absolute
 #   {t} episode/issue title  {d} air date  {vol} {ch} {issue}  {vf} resolution
-#   {vs} source  {vc} video codec  {ac} audio codec  {group}  {crc}  {id} {tmdbid}
-#   {orig} original file name  {publisher}
+#   {vs} source  {vc} video codec  {ac} audio codec  {group}  {crc}
+#   {id} {tmdbid} {anilistid} {malid} {mangabakaid}  {orig} original file name  {publisher}
 # Padding: {s:02}  Case: {n:upper} {n:lower}  First letter: {n:first}
 # [ ... ] is optional: dropped if any field inside is missing.
 # "/" separates folders. The extension is added automatically.
 [format]
 # tv = "{n} ({y})/Season {s:02}/{n} - {s00e00}[ - {t}]"
+
+# Which sources are searched, in order, for anime and manga. The first
+# confident match wins. Movies and TV always use TMDB, comics ComicVine.
+# Sources: anilist, mal, mangadex, mangabaka
+[providers]
+anime = ["anilist"]
+manga = ["anilist", "mangadex"]
+# Where anime episode titles ({t}) come from, in order: tmdb, mal
+anime_episodes = ["tmdb"]
 
 # Extras are off by default.
 [extras]

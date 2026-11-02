@@ -15,7 +15,7 @@ const BASE: &str = "https://graphql.anilist.co";
 
 const FIELDS: &str = "
 fragment f on Media {
-  id type format seasonYear startDate { year }
+  id idMal type format seasonYear startDate { year }
   title { romaji english native } synonyms
   coverImage { extraLarge large } bannerImage
   description(asHtml: false) genres siteUrl
@@ -31,6 +31,7 @@ pub struct Anilist {
 #[serde(rename_all = "camelCase")]
 struct MediaJson {
     id: u64,
+    id_mal: Option<u64>,
     format: Option<String>,
     season_year: Option<u16>,
     start_date: Option<StartDate>,
@@ -125,6 +126,7 @@ impl Anilist {
             genres: m.genres,
             english_title: t.english.clone(),
             url: m.site_url,
+            ext_ids: m.id_mal.map(|id| (Source::Mal, id.to_string())).into_iter().collect(),
             ..Default::default()
         }
     }
@@ -179,7 +181,7 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {"Page": {"media": [{
-                "id": 154587, "type": "ANIME", "seasonYear": 2023,
+                "id": 154587, "idMal": 52991, "type": "ANIME", "seasonYear": 2023,
                 "title": {"romaji": "Sousou no Frieren", "english": "Frieren: Beyond Journey's End", "native": "葬送のフリーレン"},
                 "synonyms": ["Frieren"], "coverImage": {"extraLarge": "https://x/c.jpg"},
                 "description": "A <i>fairy</i> tale.<br>", "genres": ["Adventure"]
@@ -193,6 +195,8 @@ mod tests {
         assert!(r[0].alt_titles.contains(&"Frieren".to_string()));
         assert_eq!(r[0].overview.as_deref(), Some("A fairy tale."));
         assert_eq!(r[0].year, Some(2023));
+        assert_eq!(r[0].id_for(Source::Mal), Some("52991"));
+        assert_eq!(r[0].id_for(Source::Anilist), Some("154587"));
 
         let a = Anilist::new(http, TitlePreference::English).with_base_url(server.uri());
         let r = a.search("Frieren", None, MediaKind::Anime).await.unwrap();

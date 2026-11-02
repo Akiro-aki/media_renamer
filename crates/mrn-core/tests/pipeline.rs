@@ -12,7 +12,7 @@ use mrn_core::providers::comicvine::ComicVine;
 use mrn_core::providers::http::{Http, HttpOptions};
 use mrn_core::providers::mangadex::Mangadex;
 use mrn_core::providers::tmdb::Tmdb;
-use mrn_core::providers::Providers;
+use mrn_core::providers::{Providers, Source};
 use mrn_core::scan::scan;
 use serde_json::json;
 use wiremock::matchers::{method, path, query_param};
@@ -70,7 +70,7 @@ async fn mock_tmdb(server: &MockServer) {
     Mock::given(method("POST"))
         .and(path("/graphql"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {"Page": {"media": [{
-            "id": 154587, "seasonYear": 2023,
+            "id": 154587, "idMal": 52991, "seasonYear": 2023,
             "title": {"romaji": "Sousou no Frieren", "english": "Frieren: Beyond Journey's End"},
             "synonyms": ["Frieren"]
         }]}}})))
@@ -244,4 +244,60 @@ async fn forced_id_and_offline() {
         "some random name.mkv"
     );
     assert!(a.items[0].matched.is_none());
+}
+
+/// Target file names for `files` in `dir`, renamed in place.
+async fn names(engine: &Engine, opts: &Options, dir: &Path) -> Vec<String> {
+    let files = scan(&[dir.to_path_buf()], true).unwrap().files;
+    let analysis = engine
+        .analyze(files, opts, &mut SkipUncertain, &|_| {})
+        .await
+        .unwrap();
+    analysis
+        .items
+        .iter()
+        .map(|i| match &i.target {
+            Ok(t) => t.file_name().unwrap().to_string_lossy().into_owned(),
+            Err(e) => format!("ERR {e}"),
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn provider_order_and_cross_site_ids() {
+    let server = MockServer::start().await;
+    mock_tmdb(&server).await;
+    mock(&server, "/manga", Some(("title", "Chainsaw Man")), json!({"data": [{
+        "id": "a77742b1",
+        "attributes": {"title": {"en": "Chainsaw Man"}, "year": 2018,
+                       "links": {"al": "105778", "mal": "116778"}},
+        "relationships": []
+    }]}))
+    .await;
+    let engine = engine(&server);
+    let d = tempfile::tempdir().unwrap();
+
+    // Anime: {malid} comes from AniList's idMal; titles follow anime_episodes.
+    let anime = d.path().join("anime");
+    touch(&anime, "[SubsPlease] Sousou no Frieren - 12 (1080p).mkv");
+    let mut opts = Options::from_config(&engine.config);
+    opts.interactive = false;
+    opts.format = Some(r"{n} \[{malid}\][ - {t}]".into());
+    assert_eq!(names(&engine, &opts, &anime).await, ["Sousou no Frieren [52991] - A Real Hero.mkv"]);
+    opts.providers.anime_episodes.clear();
+    assert_eq!(names(&engine, &opts, &anime).await, ["Sousou no Frieren [52991].mkv"]);
+
+    // Manga: MangaDex first means AniList is never asked.
+    let manga = d.path().join("manga");
+    touch(&manga, "Chainsaw Man v01.cbz");
+    opts.kind = Some(mrn_core::MediaKind::Manga);
+    opts.format = Some(r"{n} \[{source} {anilistid} {malid}\]".into());
+    opts.providers.manga = vec![Source::Mangadex];
+    let graphql_calls = || async {
+        let reqs = server.received_requests().await.unwrap();
+        reqs.iter().filter(|r| r.url.path() == "/graphql").count()
+    };
+    let before = graphql_calls().await;
+    assert_eq!(names(&engine, &opts, &manga).await, ["Chainsaw Man [mangadex 105778 116778].cbz"]);
+    assert_eq!(graphql_calls().await, before, "AniList was searched");
 }

@@ -22,6 +22,9 @@ fn apply_match_args(opts: &mut Options, m: &MatchArgs) {
     opts.query = m.query.clone();
     opts.forced_id = m.id.clone();
     opts.offline = m.offline;
+    for spec in &m.providers {
+        opts.providers.set(spec);
+    }
 }
 
 pub async fn run(args: RenameArgs, config_path: Option<&Path>) -> Result<ExitCode> {
@@ -243,7 +246,7 @@ pub async fn info(args: InfoArgs, config_path: Option<&Path>) -> Result<ExitCode
     if !opts.offline && opts.forced_id.is_none() {
         let query = opts.query.clone().or_else(|| item.info.title.clone());
         if let Some(q) = query {
-            match engine.candidates(item.kind, &q, item.info.year).await {
+            match engine.candidates(item.kind, &q, item.info.year, &opts).await {
                 Ok(c) if !c.is_empty() => {
                     println!("{}", label("Candidates"));
                     for s in c.iter().take(5) {

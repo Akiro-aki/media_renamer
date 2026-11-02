@@ -36,6 +36,9 @@ struct Attributes {
     #[serde(default)]
     description: Value,
     year: Option<u16>,
+    /// Ids on other sites: `al` (AniList), `mal`, `mu`, ...
+    #[serde(default)]
+    links: Option<std::collections::BTreeMap<String, Value>>,
 }
 
 #[derive(Deserialize)]
@@ -87,8 +90,29 @@ impl Mangadex {
                 .flatten()
         });
 
+        let ext_ids = a
+            .links
+            .iter()
+            .flatten()
+            .filter_map(|(site, id)| {
+                let source = match site.as_str() {
+                    "al" => Source::Anilist,
+                    "mal" => Source::Mal,
+                    _ => return None,
+                };
+                // Usually a string, but be lenient about numbers.
+                let id = match id {
+                    Value::String(s) => s.trim().to_string(),
+                    Value::Number(n) => n.to_string(),
+                    _ => return None,
+                };
+                (!id.is_empty() && id.chars().all(|c| c.is_ascii_digit())).then_some((source, id))
+            })
+            .collect();
+
         Candidate {
             source: Some(Source::Mangadex),
+            ext_ids,
             kind: Some(MediaKind::Manga),
             title,
             alt_titles: alt,
@@ -155,7 +179,8 @@ mod tests {
                     "title": {"ja-ro": "Chainsaw Man"},
                     "altTitles": [{"ja": "チェンソーマン"}, {"en": "Chainsaw Man"}],
                     "description": {"en": "Denji..."},
-                    "year": 2018
+                    "year": 2018,
+                    "links": {"al": "105778", "mal": "116778", "mu": "pa6x7ji", "raw": "https://x"}
                 },
                 "relationships": [{"type": "author"}, {"type": "cover_art", "attributes": {"fileName": "c.jpg"}}]
             }]})))
@@ -168,5 +193,8 @@ mod tests {
         assert_eq!(r[0].year, Some(2018));
         assert_eq!(r[0].poster.as_deref(), Some("https://uploads.mangadex.org/covers/abc/c.jpg"));
         assert!(r[0].alt_titles.contains(&"チェンソーマン".to_string()));
+        assert_eq!(r[0].id_for(Source::Anilist), Some("105778"));
+        assert_eq!(r[0].id_for(Source::Mal), Some("116778"));
+        assert_eq!(r[0].ext_ids.len(), 2);
     }
 }

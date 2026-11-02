@@ -10,6 +10,7 @@ use std::process::ExitCode;
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use mrn_core::MediaKind;
 use mrn_core::ops::{Action, Conflict};
+use mrn_core::config::ProviderSpec;
 use mrn_core::providers::ForcedId;
 
 #[derive(Parser)]
@@ -113,6 +114,10 @@ pub struct MatchArgs {
     /// Use this entry instead of searching, e.g. tmdb:1399, anilist:154587.
     #[arg(long, value_parser = parse_forced)]
     pub id: Option<ForcedId>,
+    /// Provider order for this run, e.g. anime=anilist or manga=mangadex,anilist
+    /// (lists: anime, manga, anime_episodes). Repeatable.
+    #[arg(long = "providers", value_name = "LIST=SOURCES", value_parser = parse_order)]
+    pub providers: Vec<ProviderSpec>,
     /// No lookups: name files from what is in the file name.
     #[arg(long)]
     pub offline: bool,
@@ -187,6 +192,9 @@ fn parse_kind(s: &str) -> Result<MediaKind, String> {
     s.parse()
 }
 fn parse_forced(s: &str) -> Result<ForcedId, String> {
+    s.parse()
+}
+fn parse_order(s: &str) -> Result<ProviderSpec, String> {
     s.parse()
 }
 fn parse_action(s: &str) -> Result<Action, String> {

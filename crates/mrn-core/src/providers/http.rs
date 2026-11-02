@@ -177,6 +177,8 @@ fn limits_for(host: &str) -> (f64, f64) {
         "api.mangadex.org" => (5.0, 4.0),            // 5/s
         "comicvine.gamespot.com" => (10.0, 200.0 / 3600.0), // 200/hour
         "api.themoviedb.org" => (20.0, 20.0),
+        "api.jikan.moe" => (3.0, 1.0),               // about 3/s and 60/min
+        "api.mangabaka.org" => (5.0, 0.5),           // search: 30/min
         _ => (10.0, 10.0),
     }
 }

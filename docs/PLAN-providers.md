@@ -1,7 +1,20 @@
 # Plan: more providers (MAL via Jikan, MangaBaka)
 
-Written 2026-11-02 (planning session, nothing implemented yet). Read with
-[DEVELOPMENT.md](DEVELOPMENT.md) and [ARCHITECTURE.md](ARCHITECTURE.md).
+Written 2026-11-02. Read with [DEVELOPMENT.md](DEVELOPMENT.md) and [ARCHITECTURE.md](ARCHITECTURE.md).
+Work happens on the `providers` branch.
+
+**Progress:**
+- **Phase 0: done (2026-11-02).**
+  - `Source::Mal`/`Mangabaka` exist with aliases (`myanimelist`, `mb`), but they have no provider
+    yet. `Providers::get` returns `None` for them, so they are skipped in search lists, and
+    `--id mal:N` fails with "not supported yet" until Phase 1.
+  - `[providers]` is `config::ProviderOrder` (validated in `Config::load`). `--providers LIST=SOURCES`
+    parses to `ProviderSpec` and is stored in `Options.providers`.
+  - `Engine::series_for` walks `anime_episodes`. Its `mal` arm is a stub until Phase 1.
+  - Defaults keep today's behaviour (`anime = ["anilist"]`, `manga = ["anilist", "mangadex"]`,
+    `anime_episodes = ["tmdb"]`). Phases 1 and 2 add `mal`/`mangabaka` to them.
+  - Besides AniList's `idMal`, MangaDex's `links` (`al`, `mal`) also fill `ext_ids`.
+- Phase 1: next.
 
 ## Decisions
 
