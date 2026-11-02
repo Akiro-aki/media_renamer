@@ -111,7 +111,8 @@ pub struct MatchArgs {
     /// Search with this title instead of the one in the file name.
     #[arg(short, long)]
     pub query: Option<String>,
-    /// Use this entry instead of searching, e.g. tmdb:1399, anilist:154587.
+    /// Use this entry instead of searching, e.g. tmdb:1399, anilist:154587, mal:52991,
+    /// mangabaka:3397, mangadex:UUID, comicvine:18166.
     #[arg(long, value_parser = parse_forced)]
     pub id: Option<ForcedId>,
     /// Provider order for this run, e.g. anime=anilist or manga=mangadex,anilist

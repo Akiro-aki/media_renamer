@@ -91,7 +91,14 @@ Work happens on the `providers` branch.
     v03; Frieren ch. 10 got none (MangaDex lists only chapters 1-2 for it). `-f komga --artwork`
     wrote `Sousou no Frieren v02.jpg` beside the untouched archive. `mrn undo` reverted both.
   - Not done: the GUI checkbox (Phase 5).
-- Phase 5: next.
+- **Phase 5: done (2026-11-02).**
+  - GUI: "Covers in .cbz (Kavita)" toggle next to ComicInfo; Settings shows the provider order
+    read-only and says anime episode titles come from MyAnimeList without a TMDB key. Editing the
+    order stays a GUI follow-up (DEVELOPMENT.md roadmap).
+  - CLI: `mrn info` lists MangaBaka/MAL candidates with their source; `--id` help lists every source.
+  - Docs: README (sources, `[providers]`, `--providers`, new fields, covers), ARCHITECTURE.md,
+    DEVELOPMENT.md (session 5, known issues 6, 9, 13-15, roadmap, decisions).
+  - Still open: live Jikan checks, and a real Kavita/Komga scan (DEVELOPMENT.md "Not verified yet").
 
 ## Decisions
 

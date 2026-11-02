@@ -7,8 +7,8 @@ layout for Jellyfin, Plex, Kodi, Kavita or Komga.
 | Media  | Matched with | API key |
 |--------|--------------|---------|
 | Movies, TV | [TMDB](https://www.themoviedb.org/settings/api) | free key needed |
-| Anime  | AniList (episode titles via TMDB when a key is set) | none |
-| Manga  | AniList, MangaDex as fallback | none |
+| Anime  | AniList, then MyAnimeList (via [Jikan](https://jikan.moe)); episode titles from TMDB when a key is set, else MyAnimeList | none |
+| Manga  | AniList, then [MangaBaka](https://mangabaka.org), then MangaDex; volume covers from MangaDex | none |
 | Comics | [ComicVine](https://comicvine.gamespot.com/api/) | free key; without one, files are named from the file name |
 
 ## Graphical interface
@@ -99,7 +99,8 @@ Useful flags for `rename`:
 |------|---------|
 | `-o DIR` | library root; without it files are renamed in place |
 | `-t TYPE` | force `movie`, `tv`, `anime`, `comic` or `manga` |
-| `-q TITLE` / `--id tmdb:1399` | search a different title, or use a specific entry (`tmdb`, `anilist`, `mangadex`, `comicvine`) |
+| `-q TITLE` / `--id tmdb:1399` | search a different title, or use a specific entry (`tmdb`, `anilist`, `mal`, `mangabaka`, `mangadex`, `comicvine`) |
+| `--providers LIST=SOURCES` | search order for this run, e.g. `manga=mangabaka,anilist` (lists: `anime`, `manga`, `anime_episodes`) |
 | `-f PRESET\|TEMPLATE` | `jellyfin` (default), `plex`, `kodi`, `anime`, `kavita`, `komga`, or a template |
 | `-a ACTION` | `move` (default), `copy`, `hardlink`, `symlink` |
 | `--conflict` | `skip` (default), `override` (the replaced file goes to the trash), `index` (`Name (1).mkv`) |
@@ -119,12 +120,32 @@ Subtitles and other sidecar files (`Name.en.srt`, `Name.nfo`, …) move with the
 - `{n}` name, `{y}` year, `{s}` season, `{e}` episode, `{s00e00}`, `{sxe}`, `{abs}` absolute episode,
   `{t}` episode/issue title, `{d}` air date, `{vol}`, `{ch}`, `{issue}`, `{vf}` resolution,
   `{vs}` source, `{vc}`/`{ac}` codecs, `{group}`, `{crc}`, `{id}`, `{tmdbid}`, `{anilistid}`,
-  `{publisher}`, `{orig}` original file name.
+  `{malid}`, `{mangabakaid}` (also filled from cross-site ids, e.g. `{malid}` for an AniList match),
+  `{source}`, `{publisher}`, `{orig}` original file name.
 - `{s:02}` zero-pads; `{n:upper}`, `{n:lower}`, `{n:first}` (first letter, for A–Z folders).
 - `[ … ]` is optional: it's dropped when a field inside it has no value.
 - `\[` `\]` `\{` `\}` are literal brackets. `/` separates folders. The extension is added for you.
 
 Set per-kind templates under `[format]` in the config.
+
+## Providers
+
+Anime and manga are searched in the order set under `[providers]` in the config;
+the first confident match wins. `--providers` overrides it for one run, and the
+GUI's Settings tab shows the current order.
+
+```toml
+[providers]
+anime = ["anilist", "mal"]
+manga = ["anilist", "mangabaka", "mangadex"]
+# Where anime episode titles ({t}) come from: each source fills the gaps of the one before.
+anime_episodes = ["tmdb", "mal"]
+```
+
+Later anime seasons that AniList and MyAnimeList list as separate entries are
+found through AniList's sequel links, so `Show S02E03` or `Show - 31` gets the
+right title. A host that can't be reached is skipped for 5 minutes, so the
+next source answers instead of waiting.
 
 ## Extras (off by default)
 

@@ -113,6 +113,7 @@ pub enum Flag {
     Nfo,
     Artwork,
     ComicInfo,
+    EmbedCover,
     Clean,
 }
 
@@ -167,6 +168,7 @@ pub struct State {
     nfo: bool,
     artwork: bool,
     comicinfo: bool,
+    embed_cover: bool,
     clean: bool,
 
     phase: Phase,
@@ -202,6 +204,7 @@ impl State {
             nfo: config.extras.nfo,
             artwork: config.extras.artwork,
             comicinfo: config.extras.comicinfo,
+            embed_cover: config.extras.embed_cover,
             clean: false,
             phase: Phase::Idle,
             job: None,
@@ -258,6 +261,7 @@ impl State {
             nfo: self.nfo,
             artwork: self.artwork,
             comicinfo: self.comicinfo,
+            embed_cover: self.embed_cover,
             clean: self.clean,
         }
     }
@@ -354,6 +358,7 @@ impl State {
                     Flag::Nfo => &mut self.nfo,
                     Flag::Artwork => &mut self.artwork,
                     Flag::ComicInfo => &mut self.comicinfo,
+                    Flag::EmbedCover => &mut self.embed_cover,
                     Flag::Clean => &mut self.clean,
                 };
                 *slot = on;
@@ -611,6 +616,7 @@ impl State {
                 toggle(self.nfo, ".nfo files", Flag::Nfo),
                 toggle(self.artwork, "Artwork", Flag::Artwork),
                 toggle(self.comicinfo, "ComicInfo.xml in .cbz", Flag::ComicInfo),
+                toggle(self.embed_cover, "Covers in .cbz (Kavita)", Flag::EmbedCover),
             ]
             .spacing(18)
             .align_y(Center),

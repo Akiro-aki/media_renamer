@@ -370,9 +370,9 @@ fails and the existing file stays.
 
 | Suite | What |
 |---|---|
-| unit tests (44) in `mrn-core/src/**` | template, sanitize, presets, matcher, ops (incl. chain renames, replace via trash), history (incl. trash restore, ComicInfo revert, migration), trash, cache, http (wiremock), each provider (wiremock), extras, nfo, comicinfo, scan, config template |
+| unit tests (69, plus 1 ignored live AniList test) in `mrn-core/src/**` | template, sanitize, presets, matcher, ops (incl. chain renames, replace via trash), history (incl. trash restore, ComicInfo and cover revert, migration), trash, cache, http (wiremock, incl. unreachable-host skip), each provider (wiremock, several on trimmed real responses in `tests/fixtures/`), extras (incl. Komga sidecars), nfo, comicinfo, cover (Kavita's cover-name cases), scan, config template |
 | `mrn-core/tests/parser_corpus.rs` | 76 filename cases from `fixtures/filenames.toml` |
-| `mrn-core/tests/pipeline.rs` (3) | full TV + movie + anime (AniList→TMDB cross-ref) flow with nfo, execute, undo; uncertain match fail/ask/search; `--id` and `--offline` |
+| `mrn-core/tests/pipeline.rs` (12) | full TV + movie + anime (AniList→TMDB cross-ref) flow with nfo, execute, undo; uncertain match fail/ask/search; `--id` and `--offline`; provider order and cross-site ids; MAL fallbacks and episode titles without a TMDB key; later seasons via the sequel chain; manga falling back to MangaBaka; ComicInfo details then undo; Kavita embedded covers and Komga sidecars then undo |
 | `mrn-cli/tests/cli.rs` (7) | real binary in isolated XDG dirs: rename/history/undo, `--conflict override` → trash → undo, `--yes` needed without a TTY, missing TMDB key message, config init/show masking, info, bad template, completions/man |
 | `mrn-gui` `worker::tests` (1) | the GUI's job thread headless: offline preview → apply → undo, and cancel after preview leaves files alone |
 | `mrn-gui` `snapshots` (ignored) | renders every screen with sample data to PNG (`MRN_GUI_SNAPSHOTS=dir cargo test -p mrn-gui -- --ignored`) |

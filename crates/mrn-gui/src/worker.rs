@@ -34,6 +34,8 @@ pub struct Request {
     pub nfo: bool,
     pub artwork: bool,
     pub comicinfo: bool,
+    /// Embed volume covers into .cbz files (Kavita).
+    pub embed_cover: bool,
     pub clean: bool,
 }
 
@@ -57,6 +59,7 @@ impl Request {
             (self.nfo, "--nfo"),
             (self.artwork, "--artwork"),
             (self.comicinfo, "--comicinfo"),
+            (self.embed_cover, "--embed-cover"),
             (self.clean, "--clean"),
             (!self.recursive, "--no-recursive"),
         ] {
@@ -176,6 +179,7 @@ async fn run(req: Request, events: &UnboundedSender<Event>, commands: &mpsc::Rec
     opts.extras.nfo = req.nfo;
     opts.extras.artwork = req.artwork;
     opts.extras.comicinfo = req.comicinfo;
+    opts.extras.embed_cover = req.embed_cover;
     opts.clean = req.clean;
     opts.interactive = true;
 
@@ -326,6 +330,7 @@ mod tests {
             nfo: false,
             artwork: false,
             comicinfo: false,
+            embed_cover: false,
             clean: false,
         }
     }
