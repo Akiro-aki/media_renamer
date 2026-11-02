@@ -101,9 +101,9 @@ pub struct ProviderOrder {
 impl Default for ProviderOrder {
     fn default() -> Self {
         Self {
-            anime: vec![Source::Anilist],
+            anime: vec![Source::Anilist, Source::Mal],
             manga: vec![Source::Anilist, Source::Mangadex],
-            anime_episodes: vec![Source::Tmdb],
+            anime_episodes: vec![Source::Tmdb, Source::Mal],
         }
     }
 }

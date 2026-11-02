@@ -14,7 +14,38 @@ Work happens on the `providers` branch.
   - Defaults keep today's behaviour (`anime = ["anilist"]`, `manga = ["anilist", "mangadex"]`,
     `anime_episodes = ["tmdb"]`). Phases 1 and 2 add `mal`/`mangabaka` to them.
   - Besides AniList's `idMal`, MangaDex's `links` (`al`, `mal`) also fill `ext_ids`.
-- Phase 1: next.
+- **Phase 1: done (2026-11-02), not yet checked against the live API.**
+  - `providers/mal.rs` is built from Jikan's OpenAPI spec (`jikan-me/jikan-rest`,
+    `storage/api-docs/api-docs.json`) and its scraper (`jikan-me/jikan`). The live API was
+    unreachable from the dev sandbox.
+  - Facts confirmed in that source: an episode's `mal_id` is its episode number (MAL's
+    episode-number column); episode pages hold 100.
+  - MAL episodes are season 1 with `absolute` = number, and the list is `SeriesInfo.single_entry`.
+    Season 0 would mean specials in the TV templates.
+  - **Later seasons** (known issue 6). A search usually matches season 1's entry, so for a file
+    that needs another season (`S02E03`, or numbering past the entry's end such as `- 31`),
+    `Engine::mal_series` finds the franchise's seasons. `Anilist::season_chain` follows `PREQUEL`
+    and `SEQUEL` links:
+    - TV, TV_SHORT and ONA entries count as seasons. Movies and specials are passed through.
+    - An entry titled like the previous one plus "Part 2", "Cour 2" or "2nd Cour" continues that
+      season (`base_title`).
+    - The seasons' MAL lists are joined, using TheTVDB-style season numbers and absolute numbers
+      counted from the matched entry. Only the seasons the files need are fetched.
+    - Without a usable chain, a MAL list stays `single_entry` and names only season 1 (or
+      unnumbered) files: no title rather than a wrong one.
+  - `anime_episodes` sources now **merge**: each later source fills in episodes the earlier ones
+    lack, until every file finds its episode. With a TMDB key, TMDB names what it has and MAL
+    fills the gaps.
+  - The chain was checked live against AniList (`live_season_chain`, ignored by default): Frieren
+    S1 → S2 → S3; Attack on Titan gives 4 seasons, with "Season 3 Part 2" and "The Final Season
+    Part 2" continuing their seasons, as on TheTVDB.
+  - Considered and not chosen: the Fribb/anime-lists mapping (AniDB-based, about 6 MB, maps each
+    entry to its TheTVDB season and offset) and the AniDB API (registered client, 1 request per 2
+    s with bans, splits seasons like AniList).
+  - Defaults are now `anime = ["anilist", "mal"]` and `anime_episodes = ["tmdb", "mal"]`.
+  - To do: live Jikan checks (Frieren S1 and S2, an anime missing from TMDB) and a real Jikan
+    response saved for the tests.
+- Phase 2: next.
 
 ## Decisions
 
@@ -130,10 +161,8 @@ Still to confirm before Phases 3 and 4 (save real responses as fixtures):
   - `tmdb`: today's cross-reference by title.
   - `mal`: the MAL id from the match (`Source::Mal`) or `ext_ids[Mal]` (AniList match). No title search.
   - The first source that returns episodes wins.
-- **Known gap:** some release groups continue numbering from the previous season (Frieren S2 as
-  29, 30, …). If the parsed number is beyond the entry's episode count, give no title (as now).
-  The proper fix follows the MAL/AniList prequel chain to offset the numbers. Out of scope; note it
-  under issue 6.
+- **Later seasons** (`S02E03`, or Frieren S2 numbered on from S1 as 29, 30, …): done through
+  the AniList sequel chain (see Progress above).
 
 ## Phase 2: MangaBaka
 

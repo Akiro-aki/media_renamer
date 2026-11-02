@@ -294,12 +294,13 @@ impl Engine {
         }
 
         // 5. Episode lists for TV and anime.
-        let series_jobs: Vec<(usize, MediaKind, Arc<Candidate>)> = groups
+        let series_jobs: Vec<(usize, MediaKind, Arc<Candidate>, Vec<ParsedInfo>)> = groups
             .iter()
             .enumerate()
             .filter_map(|(gi, g)| match &states[gi] {
                 GroupState::Matched(m) if g.kind.is_video() && g.kind != MediaKind::Movie => {
-                    Some((gi, g.kind, m.candidate.clone()))
+                    let infos = g.members.iter().map(|&i| parsed[i].1.clone()).collect();
+                    Some((gi, g.kind, m.candidate.clone(), infos))
                 }
                 _ => None,
             })
@@ -308,8 +309,8 @@ impl Engine {
             status("Fetching episode lists…");
         }
         let series: Vec<(usize, Result<Option<SeriesInfo>>)> =
-            futures::stream::iter(series_jobs.into_iter().map(|(gi, kind, c)| async move {
-                (gi, self.series_for(kind, &c, &opts.providers.anime_episodes).await)
+            futures::stream::iter(series_jobs.into_iter().map(|(gi, kind, c, infos)| async move {
+                (gi, self.series_for(kind, &c, &opts.providers.anime_episodes, &infos).await)
             }))
             .buffer_unordered(concurrency)
             .collect()
@@ -578,12 +579,14 @@ impl Engine {
 
     /// Episode list for a matched series. TMDB shows have their own. AniList
     /// has no episode titles, so anime walks `episode_sources` (`[providers]
-    /// anime_episodes`) until one returns episodes.
+    /// anime_episodes`): each source fills in episodes the earlier ones lack,
+    /// until every file in `files` finds its episode.
     async fn series_for(
         &self,
         kind: MediaKind,
         c: &Candidate,
         episode_sources: &[Source],
+        files: &[ParsedInfo],
     ) -> Result<Option<SeriesInfo>> {
         if c.source() == Source::Tmdb {
             return match &self.providers.tmdb {
@@ -594,15 +597,24 @@ impl Engine {
         if kind != MediaKind::Anime {
             return Ok(None);
         }
+        let mut merged: Option<SeriesInfo> = None;
         let mut error = None;
         for &source in episode_sources {
+            if merged.as_ref().is_some_and(|s| covers(s, files)) {
+                break;
+            }
             let found = match source {
                 Source::Tmdb => self.tmdb_series_by_title(c).await,
-                // The MAL provider comes in phase 1 of docs/PLAN-providers.md.
+                Source::Mal => self.mal_series(c, files).await,
                 _ => Ok(None),
             };
             match found {
-                Ok(Some(s)) if !s.episodes.is_empty() => return Ok(Some(s)),
+                Ok(Some(s)) if !s.episodes.is_empty() => {
+                    merged = Some(match merged.take() {
+                        None => s,
+                        Some(m) => merge_series(m, s),
+                    });
+                }
                 Ok(_) => {}
                 Err(e) => {
                     tracing::warn!("{source} episode list for '{}': {e:#}", c.title);
@@ -610,10 +622,101 @@ impl Engine {
                 }
             }
         }
-        match error {
-            Some(e) => Err(e),
-            None => Ok(None),
+        match (merged, error) {
+            (Some(s), _) => Ok(Some(s)),
+            (None, Some(e)) => Err(e),
+            (None, None) => Ok(None),
         }
+    }
+
+    /// MAL episodes for an anime entry. When a file needs another season
+    /// (`S02E03`, or numbering past the entry's end), the franchise's seasons
+    /// are found through AniList's prequel/sequel links and their MAL lists
+    /// are joined into one list with TheTVDB-style seasons.
+    async fn mal_series(&self, c: &Candidate, files: &[ParsedInfo]) -> Result<Option<SeriesInfo>> {
+        let mal = &self.providers.mal;
+        let base = match c.id_for(Source::Mal) {
+            Some(id) => Some(mal.episodes(id).await?),
+            None => None,
+        };
+        let base_count = base.as_ref().map_or(0, last_episode);
+        let other_seasons: HashSet<u32> = files
+            .iter()
+            .filter(|i| !i.episodes.is_empty())
+            .filter_map(|i| i.season)
+            .filter(|&s| s != 1)
+            .collect();
+        let max_abs = files.iter().flat_map(|i| i.absolute.iter().copied()).max().unwrap_or(0);
+        if other_seasons.is_empty() && max_abs <= base_count {
+            return Ok(base);
+        }
+
+        let start = match (c.id_for(Source::Anilist), c.id_for(Source::Mal)) {
+            (Some(id), _) => id.parse().ok().map(|id| (id, false)),
+            (None, Some(id)) => id.parse().ok().map(|id| (id, true)),
+            (None, None) => None,
+        };
+        let Some((start_id, by_mal)) = start else { return Ok(base) };
+        let chain = match self.providers.anilist.season_chain(start_id, by_mal).await {
+            Ok(chain) if chain.entries.len() > 1 => chain,
+            Ok(_) => return Ok(base),
+            Err(e) => {
+                tracing::warn!("AniList seasons of '{}': {e:#}", c.title);
+                return Ok(base);
+            }
+        };
+        let wanted: HashSet<u32> = files
+            .iter()
+            .filter(|i| !i.episodes.is_empty())
+            .filter_map(|i| i.season)
+            .collect();
+
+        let mut out = SeriesInfo::default();
+        let mut season = 0;
+        // Episodes of earlier parts of the same season ("Part 2" continues them).
+        let mut offset = 0;
+        // Running count from the matched entry, for absolute numbers.
+        let mut absolute: Option<u32> = None;
+        for (i, entry) in chain.entries.iter().enumerate() {
+            if entry.season != season {
+                season = entry.season;
+                offset = 0;
+            }
+            if i == chain.matched {
+                absolute = Some(0);
+            }
+            let needed = wanted.contains(&entry.season)
+                || absolute.is_some_and(|a| a < max_abs);
+            let list = if i == chain.matched && base.is_some() {
+                base.clone().unwrap_or_default()
+            } else if needed && let Some(id) = entry.mal_id {
+                mal.episodes(&id.to_string()).await.unwrap_or_else(|e| {
+                    tracing::warn!("MAL episodes of '{}': {e:#}", entry.title);
+                    SeriesInfo::default()
+                })
+            } else {
+                SeriesInfo::default()
+            };
+            for e in &list.episodes {
+                out.episodes.push(Episode {
+                    season: entry.season,
+                    episode: offset + e.episode,
+                    absolute: absolute.map(|a| a + e.episode),
+                    ..e.clone()
+                });
+            }
+            // Without a count, later positions are unknown: stop numbering.
+            let count = match last_episode(&list) {
+                0 => entry.episodes.unwrap_or(0),
+                n => n,
+            };
+            if count == 0 {
+                absolute = None;
+            }
+            offset += count;
+            absolute = absolute.map(|a| a + count);
+        }
+        Ok(Some(out))
     }
 
     /// TMDB episode list for an anime from another source, found by title.
@@ -854,6 +957,12 @@ fn find_episodes(series: &SeriesInfo, info: &ParsedInfo) -> Vec<Episode> {
     if let Some(season) = info.season
         && !info.episodes.is_empty()
     {
+        // A one-entry list (MAL) is a single season. A later season in the
+        // file name usually means the search matched the first season's
+        // entry, so its titles would be wrong: give none.
+        if series.single_entry && season != 1 {
+            return Vec::new();
+        }
         return info
             .episodes
             .iter()
@@ -871,6 +980,38 @@ fn find_episodes(series: &SeriesInfo, info: &ParsedInfo) -> Vec<Episode> {
         return series.by_date(&date.to_string()).cloned().into_iter().collect();
     }
     Vec::new()
+}
+
+/// Whether every file with an episode number finds it in `series`.
+fn covers(series: &SeriesInfo, files: &[ParsedInfo]) -> bool {
+    files.iter().all(|i| {
+        let numbered = !i.episodes.is_empty() || !i.absolute.is_empty() || i.date.is_some();
+        !numbered || !find_episodes(series, i).is_empty()
+    })
+}
+
+/// `primary` plus the episodes of `extra` it doesn't have. Where both have
+/// an absolute number, `primary`'s numbering wins.
+fn merge_series(mut primary: SeriesInfo, extra: SeriesInfo) -> SeriesInfo {
+    for mut e in extra.episodes {
+        if primary.by_season_episode(e.season, e.episode).is_some() {
+            continue;
+        }
+        if e.absolute.is_some_and(|a| primary.by_absolute(a).is_some()) {
+            e.absolute = None;
+        }
+        primary.episodes.push(e);
+    }
+    for (season, poster) in extra.season_posters {
+        primary.season_posters.entry(season).or_insert(poster);
+    }
+    primary.single_entry &= extra.single_entry;
+    primary
+}
+
+/// Highest episode number in a list (its length when numbered from 1).
+fn last_episode(series: &SeriesInfo) -> u32 {
+    series.episodes.iter().map(|e| e.episode).max().unwrap_or(0)
 }
 
 /// Template fields holding an entry's id on one site, from the match itself

@@ -49,10 +49,10 @@ concurrency = 4
 # confident match wins. Movies and TV always use TMDB, comics ComicVine.
 # Sources: anilist, mal, mangadex, mangabaka
 [providers]
-anime = ["anilist"]
+anime = ["anilist", "mal"]
 manga = ["anilist", "mangadex"]
 # Where anime episode titles ({t}) come from, in order: tmdb, mal
-anime_episodes = ["tmdb"]
+anime_episodes = ["tmdb", "mal"]
 
 # Extras are off by default.
 [extras]

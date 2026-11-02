@@ -10,12 +10,13 @@ use mrn_core::pipeline::{Choice, ChoiceRequest, Chooser, Engine, Options, SkipUn
 use mrn_core::providers::anilist::Anilist;
 use mrn_core::providers::comicvine::ComicVine;
 use mrn_core::providers::http::{Http, HttpOptions};
+use mrn_core::providers::mal::Mal;
 use mrn_core::providers::mangadex::Mangadex;
 use mrn_core::providers::tmdb::Tmdb;
 use mrn_core::providers::{Providers, Source};
 use mrn_core::scan::scan;
 use serde_json::json;
-use wiremock::matchers::{method, path, query_param};
+use wiremock::matchers::{body_partial_json, body_string_contains, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 async fn mock(server: &MockServer, p: &str, q: Option<(&str, &str)>, body: serde_json::Value) {
@@ -79,15 +80,23 @@ async fn mock_tmdb(server: &MockServer) {
 }
 
 fn engine(server: &MockServer) -> Engine {
+    engine_with(server, true)
+}
+
+/// Every provider points at `server`; Jikan lives under `/jikan`.
+fn engine_with(server: &MockServer, tmdb_key: bool) -> Engine {
     let config = Config::default();
     let http = Arc::new(Http::new(HttpOptions::default()).unwrap());
     let providers = Providers {
-        tmdb: Some(Arc::new(
-            Tmdb::new(http.clone(), "key".into(), "en-US".into()).with_base_url(server.uri()),
-        )),
+        tmdb: tmdb_key.then(|| {
+            Arc::new(Tmdb::new(http.clone(), "key".into(), "en-US".into()).with_base_url(server.uri()))
+        }),
         anilist: Arc::new(
             Anilist::new(http.clone(), Default::default())
                 .with_base_url(format!("{}/graphql", server.uri())),
+        ),
+        mal: Arc::new(
+            Mal::new(http.clone(), Default::default()).with_base_url(format!("{}/jikan", server.uri())),
         ),
         mangadex: Arc::new(Mangadex::new(http.clone()).with_base_url(server.uri())),
         comicvine: Some(Arc::new(
@@ -300,4 +309,148 @@ async fn provider_order_and_cross_site_ids() {
     let before = graphql_calls().await;
     assert_eq!(names(&engine, &opts, &manga).await, ["Chainsaw Man [mangadex 105778 116778].cbz"]);
     assert_eq!(graphql_calls().await, before, "AniList was searched");
+}
+
+/// Jikan's episode list for Frieren (MAL 52991), one page.
+async fn mock_jikan_episodes(server: &MockServer) {
+    let eps: Vec<_> = (1..=28)
+        .map(|n| json!({"mal_id": n, "title": if n == 3 { "Killing Magic".to_string() } else { format!("MAL ep {n}") },
+                        "aired": "2023-10-06T00:00:00+00:00"}))
+        .collect();
+    mock(server, "/jikan/anime/52991/episodes", Some(("page", "1")), json!({
+        "pagination": {"last_visible_page": 1, "has_next_page": false}, "data": eps
+    }))
+    .await;
+}
+
+#[tokio::test]
+async fn anime_titles_from_mal_without_tmdb_key() {
+    let server = MockServer::start().await;
+    mock_tmdb(&server).await; // only AniList is reachable without a key
+    mock_jikan_episodes(&server).await;
+    let engine = engine_with(&server, false);
+    let d = tempfile::tempdir().unwrap();
+    let anime = d.path().join("anime");
+    touch(&anime, "[SubsPlease] Sousou no Frieren - 03 (1080p).mkv");
+    // Season-numbered names (detected as TV without a group tag, hence -t anime).
+    // A MAL list is one season: S02 most likely matched the wrong entry, so no title.
+    touch(&anime, "Sousou no Frieren S01E03.mkv");
+    touch(&anime, "Sousou no Frieren S02E03.mkv");
+    let mut opts = Options::from_config(&engine.config);
+    opts.interactive = false;
+    opts.kind = Some(mrn_core::MediaKind::Anime);
+    assert_eq!(
+        names(&engine, &opts, &anime).await,
+        [
+            "Sousou no Frieren - S01E03 - Killing Magic.mkv",
+            "Sousou no Frieren - S02E03.mkv",
+            "Sousou no Frieren - S01E03 - Killing Magic.mkv",
+        ]
+    );
+}
+
+#[tokio::test]
+async fn anime_episodes_order_picks_mal_first() {
+    let server = MockServer::start().await;
+    mock_tmdb(&server).await;
+    mock_jikan_episodes(&server).await;
+    let engine = engine(&server);
+    let d = tempfile::tempdir().unwrap();
+    let anime = d.path().join("anime");
+    touch(&anime, "[SubsPlease] Sousou no Frieren - 12 (1080p).mkv");
+    let mut opts = Options::from_config(&engine.config);
+    opts.interactive = false;
+    assert_eq!(names(&engine, &opts, &anime).await, ["Sousou no Frieren - S01E12 - A Real Hero.mkv"]);
+    opts.providers.anime_episodes = vec![Source::Mal, Source::Tmdb];
+    assert_eq!(names(&engine, &opts, &anime).await, ["Sousou no Frieren - S01E12 - MAL ep 12.mkv"]);
+}
+
+#[tokio::test]
+async fn anime_search_falls_back_to_mal() {
+    let server = MockServer::start().await;
+    // AniList knows nothing; MAL has the show.
+    Mock::given(method("POST"))
+        .and(path("/graphql"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {"Page": {"media": []}}})))
+        .mount(&server)
+        .await;
+    mock(&server, "/jikan/anime", Some(("q", "Sousou no Frieren")), json!({"data": [{
+        "mal_id": 52991, "titles": [{"type": "Default", "title": "Sousou no Frieren"}],
+        "type": "TV", "year": 2023
+    }]}))
+    .await;
+    mock_jikan_episodes(&server).await;
+    let engine = engine_with(&server, false);
+    let d = tempfile::tempdir().unwrap();
+    let anime = d.path().join("anime");
+    touch(&anime, "[SubsPlease] Sousou no Frieren - 03 (1080p).mkv");
+    let mut opts = Options::from_config(&engine.config);
+    opts.interactive = false;
+    opts.format = Some(r"{n} - {abs:02} - {t} \[{source}-{malid}\]".into());
+    assert_eq!(
+        names(&engine, &opts, &anime).await,
+        ["Sousou no Frieren - 03 - Killing Magic [mal-52991].mkv"]
+    );
+}
+
+/// AniList relations: Frieren season 1 (154587, MAL 52991) → season 2
+/// (182255, MAL 59978); and Jikan's 10 episodes of season 2.
+async fn mock_frieren_seasons(server: &MockServer) {
+    let node = |id: u64, mal: u64, title: &str| {
+        json!({"id": id, "idMal": mal, "type": "ANIME", "format": "TV", "episodes": null, "title": {"romaji": title}})
+    };
+    let s1 = node(154587, 52991, "Sousou no Frieren");
+    let s2 = node(182255, 59978, "Sousou no Frieren 2nd Season");
+    for (id, me, rel, other) in [(154587, &s1, "SEQUEL", &s2), (182255, &s2, "PREQUEL", &s1)] {
+        let mut media = me.clone();
+        media["relations"] = json!({"edges": [{"relationType": rel, "node": other}]});
+        Mock::given(method("POST"))
+            .and(path("/graphql"))
+            .and(body_string_contains("relations"))
+            .and(body_partial_json(json!({"variables": {"id": id}})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {"Media": media}})))
+            .with_priority(1)
+            .mount(server)
+            .await;
+    }
+    let eps: Vec<_> = (1..=10).map(|n| json!({"mal_id": n, "title": format!("Second {n}")})).collect();
+    mock(server, "/jikan/anime/59978/episodes", Some(("page", "1")), json!({
+        "pagination": {"has_next_page": false}, "data": eps
+    }))
+    .await;
+}
+
+#[tokio::test]
+async fn later_seasons_through_the_sequel_chain() {
+    let server = MockServer::start().await;
+    mock_tmdb(&server).await;
+    mock_jikan_episodes(&server).await;
+    mock_frieren_seasons(&server).await;
+    let d = tempfile::tempdir().unwrap();
+    let anime = d.path().join("anime");
+    // Each search finds season 1; the file names point at season 2.
+    touch(&anime, "Sousou no Frieren S02E03.mkv");
+    touch(&anime, "[SubsPlease] Sousou no Frieren - 31 (1080p).mkv");
+    touch(&anime, "[SubsPlease] Sousou no Frieren - 03 (1080p).mkv");
+
+    for tmdb_key in [false, true] {
+        let engine = engine_with(&server, tmdb_key);
+        let mut opts = Options::from_config(&engine.config);
+        opts.interactive = false;
+        opts.kind = Some(mrn_core::MediaKind::Anime);
+        opts.format = Some("{n} - {s00e00}[ - {t}]".into());
+        let got = names(&engine, &opts, &anime).await;
+        // With a key, TMDB names what it has (season 1 up to 12 here) and
+        // MAL fills in season 2.
+        let ep3 = if tmdb_key { "Ep 3" } else { "Killing Magic" };
+        assert_eq!(
+            got,
+            [
+                "Sousou no Frieren - S02E03 - Second 3.mkv".to_string(),
+                format!("Sousou no Frieren - S01E03 - {ep3}.mkv"),
+                "Sousou no Frieren - S02E03 - Second 3.mkv".to_string(),
+            ],
+            "tmdb key: {tmdb_key}"
+        );
+    }
 }
