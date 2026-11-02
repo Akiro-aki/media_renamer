@@ -215,7 +215,8 @@ episodes of seasons ≥ 1 in order as `absolute`; specials have none.
 
 `http.rs`:
 - **Token bucket per host:** AniList 5 burst / 0.5 per second, MangaDex 5 / 4, ComicVine 10 / (200 per hour), TMDB 20 / 20, default 10 / 10.
-- **Retries:** up to 4 attempts on 429/5xx (honouring `Retry-After`, capped at 60 s), timeouts and connect errors, with 1/2/4/8 s backoff.
+- **Retries:** up to 4 attempts on 429/5xx (honouring `Retry-After`, capped at 60 s), timeouts and connect errors, with 1/2/4 s backoff between attempts (none after the last).
+- **Unreachable hosts:** if all 4 attempts fail with timeouts or connect errors, that `Http` skips the host for 5 minutes and later requests to it fail at once, so the pipeline falls through to the next provider without waiting. A 429/5xx never triggers this.
 - **Cache:** the key is the method + URL + query without secret params (`api_key`) + the POST body. TTL is `cache_ttl_hours` (72). `--refresh` skips cache reads.
 - **Errors:** strip URLs with `without_url()` so API keys never reach messages.
 

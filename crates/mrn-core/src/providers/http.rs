@@ -17,6 +17,9 @@ const USER_AGENT: &str = concat!(
     " (media renamer; +https://github.com/)"
 );
 const MAX_ATTEMPTS: u32 = 4;
+/// How long a host that failed every attempt with a connection error is
+/// skipped before it is tried again.
+const DOWN_FOR: Duration = Duration::from_secs(5 * 60);
 
 pub struct HttpOptions {
     pub cache: Option<Arc<Cache>>,
@@ -39,6 +42,10 @@ pub struct Http {
     client: reqwest::Client,
     opts: HttpOptions,
     limiters: Mutex<HashMap<String, Arc<Limiter>>>,
+    /// Hosts that could not be reached, and when they may be tried again.
+    down: Mutex<HashMap<String, Instant>>,
+    /// First retry delay; doubles on each attempt. Shortened in tests.
+    backoff_unit: Duration,
 }
 
 impl Http {
@@ -52,6 +59,8 @@ impl Http {
             client,
             opts,
             limiters: Mutex::new(HashMap::new()),
+            down: Mutex::new(HashMap::new()),
+            backoff_unit: Duration::from_secs(1),
         })
     }
 
@@ -125,18 +134,27 @@ impl Http {
 
     async fn send(&self, url: &str, build: impl Fn() -> RequestBuilder) -> Result<reqwest::Response> {
         let host = host_of(url);
+        if self.is_down(&host) {
+            bail!("{host} unreachable, skipped (failed to connect earlier in this run)");
+        }
         let limiter = self.limiter(&host);
         let mut last_err = anyhow!("no attempts made");
+        let mut unreachable = true;
         for attempt in 0..MAX_ATTEMPTS {
             limiter.acquire().await;
-            let backoff = Duration::from_secs(1 << attempt);
+            let last = attempt + 1 == MAX_ATTEMPTS;
+            let backoff = self.backoff_unit * (1 << attempt);
             match build().send().await {
                 Ok(resp) => {
+                    unreachable = false;
                     let status = resp.status();
                     if status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error() {
+                        last_err = anyhow!("{host} returned {status}");
+                        if last {
+                            break;
+                        }
                         let wait = retry_after(&resp).unwrap_or(backoff).min(Duration::from_secs(60));
                         tracing::warn!("{host} returned {status}, retrying in {wait:?}");
-                        last_err = anyhow!("{host} returned {status}");
                         tokio::time::sleep(wait).await;
                         continue;
                     }
@@ -149,14 +167,37 @@ impl Http {
                 }
                 Err(e) if e.is_timeout() || e.is_connect() => {
                     let e = e.without_url();
-                    tracing::warn!("{host}: {e}, retrying in {backoff:?}");
                     last_err = anyhow!("{host}: {e}");
+                    if last {
+                        break;
+                    }
+                    tracing::warn!("{host}: {e}, retrying in {backoff:?}");
                     tokio::time::sleep(backoff).await;
                 }
                 Err(e) => return Err(anyhow!("{host}: {}", e.without_url())),
             }
         }
+        if unreachable {
+            tracing::warn!("{host} unreachable, skipping it for {}s", DOWN_FOR.as_secs());
+            self.down
+                .lock()
+                .unwrap()
+                .insert(host, Instant::now() + DOWN_FOR);
+        }
         Err(last_err)
+    }
+
+    /// True while `host` is inside its skip window after a run of failed connects.
+    fn is_down(&self, host: &str) -> bool {
+        let mut down = self.down.lock().unwrap();
+        match down.get(host) {
+            Some(until) if Instant::now() < *until => true,
+            Some(_) => {
+                down.remove(host);
+                false
+            }
+            None => false,
+        }
     }
 
     fn limiter(&self, host: &str) -> Arc<Limiter> {
@@ -278,6 +319,41 @@ mod tests {
         // Second call is served from the cache (the mock expects one 200).
         let v = http.get_json(&url, &q, &[], &["api_key"]).await.unwrap();
         assert_eq!(v["ok"], true);
+    }
+
+    #[tokio::test]
+    async fn unreachable_host_is_skipped_after_retries() {
+        // Bind then drop a listener so the port refuses connections.
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let url = format!("http://127.0.0.1:{port}/x");
+        let mut http = Http::new(HttpOptions::default()).unwrap();
+        http.backoff_unit = Duration::from_millis(1);
+
+        let err = http.get_json(&url, &[], &[], &[]).await.unwrap_err().to_string();
+        assert!(!err.contains("skipped"), "{err}");
+        // The second call fails at once instead of retrying again.
+        let started = Instant::now();
+        let err = http.get_json(&url, &[], &[], &[]).await.unwrap_err().to_string();
+        assert!(err.contains("skipped"), "{err}");
+        assert!(started.elapsed() < Duration::from_millis(50));
+    }
+
+    #[tokio::test]
+    async fn server_errors_do_not_mark_host_down() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(503))
+            .mount(&server)
+            .await;
+        let mut http = Http::new(HttpOptions::default()).unwrap();
+        http.backoff_unit = Duration::from_millis(1);
+        let err = http.get_json(&server.uri(), &[], &[], &[]).await.unwrap_err().to_string();
+        assert!(err.contains("503"), "{err}");
+        assert!(!http.is_down(&host_of(&server.uri())));
     }
 
     #[tokio::test]
